@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode — user-specific state (per-developer, do not share)
+xcuserdata/
+*.xcuserstate
+
+# Xcode — build output
+build/
+DerivedData/
+
+# Xcode — misc
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.pins
+
+# CocoaPods (uncomment if/when you add Pods)
+# Pods/
+
+# Carthage (uncomment if/when you add Carthage)
+# Carthage/Build/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Project-specific
+flashy.png
