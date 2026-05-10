@@ -3,6 +3,14 @@ import SwiftUI
 enum FlashyTheme {
     static let swipeGreen = Color(red: 15 / 255, green: 110 / 255, blue: 86 / 255)
     static let swipeRed = Color(red: 163 / 255, green: 45 / 255, blue: 45 / 255)
+    /// Accent for UI chrome (not grade buttons).
+    static let prussianBlue = Color(red: 0 / 255, green: 49 / 255, blue: 83 / 255)
+    static let prussianBlueOnDark = Color(red: 90 / 255, green: 140 / 255, blue: 180 / 255)
+
+    static func accent(colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? prussianBlueOnDark : prussianBlue
+    }
+
     static let flashTeal = Color(red: 15 / 255, green: 110 / 255, blue: 86 / 255).opacity(0.5)
     static let flashRed = Color(red: 163 / 255, green: 45 / 255, blue: 45 / 255).opacity(0.5)
 

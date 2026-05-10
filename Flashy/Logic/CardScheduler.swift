@@ -70,6 +70,12 @@ enum CardScheduler {
         return reviewDue + allowedNew
     }
 
+    /// How many cards are in the strict queue (due reviews + eligible new cards) before bonus mode; useful for badges.
+    static func scheduledStrictQueueCount(cards: [Card], appState: AppState, now: Date = .now) -> Int {
+        rolloverPacingIfNeeded(appState: appState, now: now)
+        return strictStudyQueue(cards: cards, appState: appState, now: now).count
+    }
+
     /// Ordered cards for the stack (strict when possible; bonus session otherwise; empty when **caught up**).
     static func studyQueue(cards: [Card], appState: AppState, now: Date = .now) -> [Card] {
         rolloverPacingIfNeeded(appState: appState, now: now)

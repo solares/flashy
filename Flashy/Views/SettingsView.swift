@@ -103,6 +103,7 @@ struct SettingsView: View {
         app.newCardsIntroducedToday = 0
         app.newCardsIntroducedDay = DateRollover.startOfLocalDay(for: Date())
         try? modelContext.save()
+        NotificationCenter.default.post(name: .flashyProgressReset, object: nil)
         dismiss()
     }
 }

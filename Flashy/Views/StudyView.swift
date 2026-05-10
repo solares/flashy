@@ -2,6 +2,44 @@ import SwiftUI
 import SwiftData
 import UIKit
 
+// MARK: - Review undo stack (session-only; not persisted)
+
+private struct ReviewSnapshot {
+    let cardId: String
+    let grade: Grade
+    let wasFlipped: Bool
+    let releaseOffset: CGSize
+    let releaseRotation: Double
+    let difficulty: Double
+    let stability: Double
+    let lapses: Int
+    let reps: Int
+    let state: ReviewState
+    let lastReviewedAt: Date?
+    let nextDueAt: Date
+    let firstShownForPacingAt: Date?
+    let historyJSON: Data
+    let prevCurrentCardId: String?
+    let prevBonusBudget: Int
+    let prevBonusSeenIds: [String]
+    let prevNewCardsIntroducedToday: Int
+    let prevNewCardsIntroducedDay: Date?
+}
+
+private enum StudyChromeTypography {
+    /// Shared label size for Reverso, Otra vez, Bien, Atrás.
+    static let labelFont = Font.system(size: 17, weight: .semibold, design: .rounded)
+    static let iconFont = Font.system(size: 17, weight: .bold)
+    /// Header remaining-count emphasis (slightly larger).
+    static let countFont = Font.system(size: 19, weight: .semibold, design: .rounded)
+
+    /// Horizontal / vertical padding for Reverso-style capsule pills.
+    static let pillHPadding: CGFloat = 16
+    static let pillVPadding: CGFloat = 9
+    /// Total capsule row height matches Reverso and Atrás (content + symmetric padding).
+    static let capsuleRowHeight: CGFloat = 43
+}
+
 struct StudyView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -22,7 +60,18 @@ struct StudyView: View {
     @State private var showStats = false
     @State private var showSettings = false
 
+    /// Session-only graded-card undo trail (FIFO cap).
+    @State private var undoStack: [ReviewSnapshot] = []
+    @State private var undoStackAnchoredDay: Date?
+    @State private var suppressNextFlipReset = false
+
+    private let undoCap = 50
+
     private var appState: AppState? { appStates.first }
+
+    private var undoAvailable: Bool {
+        flyOffset == .zero && !undoStack.isEmpty
+    }
 
     var body: some View {
         Group {
@@ -44,60 +93,30 @@ struct StudyView: View {
         let dueNow = cards.filter { CardScheduler.isReviewDue($0, now: now) }.count
         let hasStrict = CardScheduler.hasScheduledStudyWork(cards: cards, appState: app, now: now)
         let isCaughtUp = !cards.isEmpty && !hasStrict && app.effectiveBonusReviewBudget == 0
-        let headerLeft: String = {
-            if dueNow > 0 { return "\(dueNow) para hoy" }
-            if cards.isEmpty { return "Sin tarjetas" }
-            if hasStrict { return "Listo para estudiar" }
-            let bonus = app.effectiveBonusReviewBudget
-            if bonus > 0 { return "Práctica extra · quedan \(bonus)" }
-            return "Estás al día"
-        }()
+
+        let screenBg = FlashyTheme.StudyBackgroundPreset.resolved(raw: app.studyBackgroundRaw)
+            .fillColor(colorScheme: colorScheme)
 
         ZStack {
-            FlashyTheme.StudyBackgroundPreset.resolved(raw: app.studyBackgroundRaw)
-                .fillColor(colorScheme: colorScheme)
+            screenBg
                 .ignoresSafeArea()
 
-            flashColor.opacity(flashOpacity)
+            // Full-screen grade flash — sits above the background, below all UI.
+            flashColor
+                .opacity(flashOpacity)
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
 
             VStack(spacing: 0) {
-                headerRow(app: app, headerLeft: headerLeft)
+                headerRow(app: app, dueNow: dueNow, hasStrict: hasStrict)
                 if queue.first != nil {
                     reverseModeToggle(app: app)
                 }
                 Spacer(minLength: 8)
                 GeometryReader { geo in
-                    let w = min(geo.size.width - 32, 340)
-                    if let active = queue.first {
-                        CardStack(
-                            stack: queue,
-                            cardWidth: w,
-                            hapticsEnabled: app.hapticsEnabled,
-                            reduceMotion: reduceMotion,
-                            colorSchemeContrast: colorSchemeContrast,
-                            reverseModeEnabled: app.effectiveReverseModeEnabled,
-                            isFlipped: $isFlipped,
-                            flyOffset: $flyOffset,
-                            flyRotation: $flyRotation,
-                            onCommit: { grade, offset, rotation in
-                                commit(active: active, grade: grade, app: app, releaseOffset: offset, releaseRotation: rotation)
-                            }
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .offset(y: -44)
-                    } else if isCaughtUp {
-                        caughtUpState(app: app)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if cards.isEmpty {
-                        emptyState
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        ProgressView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
+                    middleStudyCanvas(geo: geo, queue: queue, isCaughtUp: isCaughtUp, app: app)
                 }
-                bottomArrowsRow(active: queue.first, app: app)
+                bottomArrowsRow(active: swipeCommitTargetCard(queue: queue, app: app), app: app)
             }
             .padding(.horizontal, 16)
 
@@ -126,9 +145,16 @@ struct StudyView: View {
             }
         }
         .onChange(of: queue.first?.id) { _, newId in
+            if suppressNextFlipReset {
+                suppressNextFlipReset = false
+                return
+            }
             if newId != nil {
                 isFlipped = false
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .flashyProgressReset)) { _ in
+            clearUndoStack()
         }
         .onReceive(NotificationCenter.default.publisher(for: .flashyOpenCSV)) { note in
             guard let url = note.userInfo?["url"] as? URL else { return }
@@ -145,6 +171,76 @@ struct StudyView: View {
                 StreakUpdater.update(app: app, now: Date())
                 try? modelContext.save()
             }
+        }
+    }
+
+    /// Resolves swipe targets when `studyQueue`'s leading card is briefly out of sync with SwiftUI (keeps bottom bar steady).
+    private func swipeCommitTargetCard(queue: [Card], app: AppState) -> Card? {
+        let now = Date()
+        let inSession =
+            CardScheduler.hasScheduledStudyWork(cards: cards, appState: app, now: now)
+                || app.effectiveBonusReviewBudget > 0
+        guard inSession else { return nil }
+        if let c = queue.first { return c }
+        if let id = app.currentCardId,
+           let c = cards.first(where: { $0.id == id }) {
+            return c
+        }
+        return CardScheduler.pickStudyCard(cards: cards, appState: app, now: now, respectCurrentCard: false)?
+            .card
+    }
+
+    @ViewBuilder
+    private func middleStudyCanvas(
+        geo: GeometryProxy,
+        queue: [Card],
+        isCaughtUp: Bool,
+        app: AppState
+    ) -> some View {
+        let w = min(geo.size.width - 32, 340)
+        if let active = queue.first {
+            CardStack(
+                stack: queue,
+                cardWidth: w,
+                hapticsEnabled: app.hapticsEnabled,
+                reduceMotion: reduceMotion,
+                colorSchemeContrast: colorSchemeContrast,
+                reverseModeEnabled: app.effectiveReverseModeEnabled,
+                isFlipped: $isFlipped,
+                flyOffset: $flyOffset,
+                flyRotation: $flyRotation,
+                onCommit: { grade, offset, rotation in
+                    commit(active: active, grade: grade, app: app, releaseOffset: offset, releaseRotation: rotation)
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .offset(y: -44)
+        } else if let salvage = swipeCommitTargetCard(queue: queue, app: app) {
+            CardStack(
+                stack: [salvage],
+                cardWidth: w,
+                hapticsEnabled: app.hapticsEnabled,
+                reduceMotion: reduceMotion,
+                colorSchemeContrast: colorSchemeContrast,
+                reverseModeEnabled: app.effectiveReverseModeEnabled,
+                isFlipped: $isFlipped,
+                flyOffset: $flyOffset,
+                flyRotation: $flyRotation,
+                onCommit: { grade, offset, rotation in
+                    commit(active: salvage, grade: grade, app: app, releaseOffset: offset, releaseRotation: rotation)
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .offset(y: -44)
+        } else if isCaughtUp {
+            caughtUpState(app: app)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if cards.isEmpty {
+            emptyState
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -184,6 +280,7 @@ struct StudyView: View {
                     .frame(maxWidth: .infinity, minHeight: 78)
             }
             .buttonStyle(.borderedProminent)
+            .tint(FlashyTheme.accent(colorScheme: colorScheme))
             .accessibilityHint("Empieza hasta \(n) repasos extra.")
         }
         .padding(.horizontal, 8)
@@ -192,23 +289,30 @@ struct StudyView: View {
 
     private func reverseModeToggle(app: AppState) -> some View {
         let isOn = app.effectiveReverseModeEnabled
-        let tint = isOn ? FlashyTheme.swipeGreen : Color.secondary
+        let accent = FlashyTheme.accent(colorScheme: colorScheme)
+        let tint = isOn ? accent : Color.secondary
         return Button {
             app.reverseModeEnabled = !isOn
             isFlipped = false
             try? modelContext.save()
         } label: {
-            Label("Reverso", systemImage: "arrow.left.arrow.right")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(isOn ? Color.white : tint)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 9)
-                .background(isOn ? tint.opacity(colorScheme == .dark ? 0.9 : 0.82) : tint.opacity(0.09))
-                .overlay(
-                    Capsule()
-                        .strokeBorder(tint.opacity(isOn ? 0.85 : 0.35), lineWidth: 1.5)
-                )
-                .clipShape(Capsule())
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(StudyChromeTypography.iconFont)
+                Text("Reverso")
+                    .font(StudyChromeTypography.labelFont)
+            }
+            .foregroundStyle(isOn ? Color.white : tint)
+            .padding(.horizontal, StudyChromeTypography.pillHPadding)
+            .padding(.vertical, StudyChromeTypography.pillVPadding)
+            .frame(height: StudyChromeTypography.capsuleRowHeight)
+            .background(isOn ? tint.opacity(colorScheme == .dark ? 0.9 : 0.82) : tint.opacity(0.09))
+            .overlay(
+                Capsule()
+                    .strokeBorder(tint.opacity(isOn ? 0.85 : 0.35), lineWidth: 1.5)
+            )
+            .clipShape(Capsule())
+            .studyPillShadowBackdrop(colorScheme: colorScheme)
         }
         .buttonStyle(.plain)
         .padding(.top, 34)
@@ -218,11 +322,53 @@ struct StudyView: View {
         .accessibilityHint("Activa o desactiva mostrar primero el reverso de la tarjeta.")
     }
 
-    private func headerRow(app: AppState, headerLeft: String) -> some View {
-        HStack(alignment: .center) {
-            Text(headerLeft)
-                .font(.system(size: 13, weight: .regular, design: .default))
-                .foregroundStyle(.secondary)
+    private func remainingDiscCount(dueNow: Int, hasStrict: Bool, app: AppState) -> Int? {
+        guard !cards.isEmpty else { return nil }
+        let bonus = app.effectiveBonusReviewBudget
+        if dueNow > 0 { return dueNow }
+        if bonus > 0 { return bonus }
+        if hasStrict {
+            let depth = CardScheduler.scheduledStrictQueueCount(cards: cards, appState: app)
+            return depth > 0 ? depth : nil
+        }
+        return nil
+    }
+
+    private func headerRow(app: AppState, dueNow: Int, hasStrict: Bool) -> some View {
+        let accent = FlashyTheme.accent(colorScheme: colorScheme)
+        let bonusMode = dueNow <= 0 && app.effectiveBonusReviewBudget > 0
+        let discAccessibility: String = {
+            if let n = remainingDiscCount(dueNow: dueNow, hasStrict: hasStrict, app: app) {
+                return bonusMode
+                    ? "Práctica extra: quedan \(n)"
+                    : "\(n) para hoy"
+            }
+            return ""
+        }()
+        return HStack(alignment: .center) {
+            if let count = remainingDiscCount(dueNow: dueNow, hasStrict: hasStrict, app: app) {
+                Text("\(count)")
+                    .font(StudyChromeTypography.countFont)
+                    .foregroundStyle(Color.white)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 7)
+                    .background(
+                        Capsule()
+                            .fill(accent.opacity(colorScheme == .dark ? 0.92 : 0.88))
+                    )
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(accent.opacity(0.92), lineWidth: 1.25)
+                    )
+                    .accessibilityLabel(discAccessibility)
+            } else {
+                Color.clear
+                    .frame(minWidth: 44, minHeight: 36)
+                    .accessibilityHidden(true)
+            }
             Spacer()
             HStack(spacing: 8) {
                 Button {
@@ -233,6 +379,7 @@ struct StudyView: View {
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.bordered)
+                .tint(accent)
                 .clipShape(Circle())
 
                 Button {
@@ -243,6 +390,7 @@ struct StudyView: View {
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.bordered)
+                .tint(accent)
 
                 Button {
                     showSettings = true
@@ -252,6 +400,7 @@ struct StudyView: View {
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.bordered)
+                .tint(accent)
             }
         }
         .padding(.top, 8)
@@ -277,25 +426,84 @@ struct StudyView: View {
                     commit(active: active, grade: .good, app: app)
                 }
             }
-            .frame(height: 68)
             .padding(.bottom, 8)
+            .background(alignment: .top) {
+                if undoAvailable {
+                    undoButton(app: app)
+                        .fixedSize()
+                        .offset(y: -(StudyChromeTypography.capsuleRowHeight + 14))
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: undoAvailable)
         }
+    }
+
+    private func undoButton(app: AppState) -> some View {
+        let accent = FlashyTheme.accent(colorScheme: colorScheme)
+        return Button {
+            undoLast(app: app)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(StudyChromeTypography.iconFont)
+                Text("Atrás")
+                    .font(StudyChromeTypography.labelFont)
+            }
+            .foregroundStyle(accent)
+            .padding(.horizontal, StudyChromeTypography.pillHPadding)
+            .padding(.vertical, StudyChromeTypography.pillVPadding)
+            .frame(height: StudyChromeTypography.capsuleRowHeight)
+            .background(accent.opacity(0.1))
+            .overlay(
+                Capsule()
+                    .strokeBorder(accent.opacity(0.42), lineWidth: 1.5)
+            )
+            .clipShape(Capsule())
+            .studyPillShadowBackdrop(colorScheme: colorScheme)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Atrás")
+        .accessibilityHint(Text("Retroceder un repaso; cancela la última clasificación si fue un error."))
+    }
+
+    private func clearUndoStack() {
+        undoStack.removeAll()
+        undoStackAnchoredDay = nil
+    }
+
+    /// Clears stacked undos after local midnight (anchored day differs from today).
+    private func invalidateUndoStackIfAnchoredDayMismatch() {
+        let today = DateRollover.startOfLocalDay(for: Date())
+        if let anchor = undoStackAnchoredDay, anchor != today {
+            clearUndoStack()
+        }
+    }
+
+    private func enqueueUndoSnapshot(_ snap: ReviewSnapshot) {
+        if undoStack.count >= undoCap {
+            undoStack.removeFirst()
+        }
+        if undoStack.isEmpty {
+            undoStackAnchoredDay = DateRollover.startOfLocalDay(for: Date())
+        }
+        undoStack.append(snap)
     }
 
     private func swipeHintBox(title: String, systemImage: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .bold))
+                    .font(StudyChromeTypography.iconFont)
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(StudyChromeTypography.labelFont)
             }
-            .foregroundStyle(color)
+            .foregroundStyle(Color.white)
             .frame(maxWidth: .infinity, minHeight: 56)
-            .background(color.opacity(colorScheme == .dark ? 0.18 : 0.1))
+            .background(color.opacity(colorScheme == .dark ? 0.9 : 0.82))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(color.opacity(colorScheme == .dark ? 0.9 : 0.75), lineWidth: 2)
+                    .strokeBorder(color.opacity(colorScheme == .dark ? 0.95 : 0.88), lineWidth: 1.5)
             )
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
@@ -370,6 +578,31 @@ struct StudyView: View {
         releaseOffset: CGSize = .zero,
         releaseRotation: Double = 0
     ) {
+        invalidateUndoStackIfAnchoredDayMismatch()
+        enqueueUndoSnapshot(
+            ReviewSnapshot(
+                cardId: active.id,
+                grade: grade,
+                wasFlipped: isFlipped,
+                releaseOffset: releaseOffset,
+                releaseRotation: releaseRotation,
+                difficulty: active.difficulty,
+                stability: active.stability,
+                lapses: active.lapses,
+                reps: active.reps,
+                state: active.state,
+                lastReviewedAt: active.lastReviewedAt,
+                nextDueAt: active.nextDueAt,
+                firstShownForPacingAt: active.firstShownForPacingAt,
+                historyJSON: active.historyJSON,
+                prevCurrentCardId: app.currentCardId,
+                prevBonusBudget: app.effectiveBonusReviewBudget,
+                prevBonusSeenIds: app.bonusSeenCardIds,
+                prevNewCardsIntroducedToday: app.newCardsIntroducedToday,
+                prevNewCardsIntroducedDay: app.newCardsIntroducedDay
+            )
+        )
+
         let screenW = UIScreen.main.bounds.width
         let dir: CGFloat = grade == .good ? 1 : -1
         if app.hapticsEnabled {
@@ -436,6 +669,57 @@ struct StudyView: View {
         }
     }
 
+    private func undoLast(app: AppState) {
+        guard let snap = undoStack.popLast() else { return }
+        if undoStack.isEmpty {
+            undoStackAnchoredDay = nil
+        }
+
+        guard
+            let allCards = try? modelContext.fetch(FetchDescriptor<Card>()),
+            let card = allCards.first(where: { $0.id == snap.cardId })
+        else {
+            enqueueUndoSnapshot(snap)
+            return
+        }
+
+        suppressNextFlipReset = true
+
+        card.difficulty = snap.difficulty
+        card.stability = snap.stability
+        card.lapses = snap.lapses
+        card.reps = snap.reps
+        card.state = snap.state
+        card.lastReviewedAt = snap.lastReviewedAt
+        card.nextDueAt = snap.nextDueAt
+        card.firstShownForPacingAt = snap.firstShownForPacingAt
+        card.historyJSON = snap.historyJSON
+
+        app.currentCardId = snap.prevCurrentCardId ?? snap.cardId
+        app.bonusReviewBudget = snap.prevBonusBudget
+        app.bonusSeenCardIds = snap.prevBonusSeenIds
+        app.newCardsIntroducedToday = snap.prevNewCardsIntroducedToday
+        app.newCardsIntroducedDay = snap.prevNewCardsIntroducedDay
+        try? modelContext.save()
+
+        isFlipped = snap.wasFlipped
+
+        let dir: CGFloat = snap.grade == .good ? 1 : -1
+        let screenW = UIScreen.main.bounds.width
+        flyOffset = CGSize(
+            width: snap.releaseOffset.width + dir * (screenW + 50),
+            height: snap.releaseOffset.height
+        )
+        flyRotation = snap.grade == .good ? 20 : -20
+        withAnimation(reduceMotion ? .linear(duration: 0.28) : .easeOut(duration: 0.3)) {
+            flyOffset = .zero
+            flyRotation = 0
+        }
+        if app.hapticsEnabled {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        }
+    }
+
     private func importCSV(from url: URL) {
         let accessing = url.startAccessingSecurityScopedResource()
         defer {
@@ -448,6 +732,7 @@ struct StudyView: View {
             if result.invalidRows > 0 {
                 parts.append("\(result.invalidRows) omitidas (inválidas)")
             }
+            clearUndoStack()
             showToast(parts.joined(separator: " · "))
         } catch {
             showToast("Error al importar")
@@ -475,6 +760,17 @@ struct StudyView: View {
         let a = AppState()
         modelContext.insert(a)
         try? modelContext.save()
+    }
+}
+
+private extension View {
+    /// Soft drop shadow behind floating capsule pills (Reverso, Atrás).
+    func studyPillShadowBackdrop(colorScheme: ColorScheme) -> some View {
+        let primaryOpacity = colorScheme == .dark ? 0.38 : 0.16
+        let secondaryOpacity = colorScheme == .dark ? 0.22 : 0.07
+        return compositingGroup()
+            .shadow(color: .black.opacity(primaryOpacity), radius: 10, x: 0, y: 5)
+            .shadow(color: .black.opacity(secondaryOpacity), radius: 3, x: 0, y: 2)
     }
 }
 
