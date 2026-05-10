@@ -59,6 +59,7 @@ struct StudyView: View {
 
     @State private var showStats = false
     @State private var showSettings = false
+    @State private var showUpcoming = false
 
     /// Session-only graded-card undo trail (FIFO cap).
     @State private var undoStack: [ReviewSnapshot] = []
@@ -162,6 +163,9 @@ struct StudyView: View {
         }
         .sheet(isPresented: $showStats) {
             StatsView()
+        }
+        .sheet(isPresented: $showUpcoming) {
+            UpcomingView()
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
@@ -347,23 +351,29 @@ struct StudyView: View {
         }()
         return HStack(alignment: .center) {
             if let count = remainingDiscCount(dueNow: dueNow, hasStrict: hasStrict, app: app) {
-                Text("\(count)")
-                    .font(StudyChromeTypography.countFont)
-                    .foregroundStyle(Color.white)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 7)
-                    .background(
-                        Capsule()
-                            .fill(accent.opacity(colorScheme == .dark ? 0.92 : 0.88))
-                    )
-                    .overlay(
-                        Capsule()
-                            .strokeBorder(accent.opacity(0.92), lineWidth: 1.25)
-                    )
-                    .accessibilityLabel(discAccessibility)
+                Button {
+                    showUpcoming = true
+                } label: {
+                    Text("\(count)")
+                        .font(StudyChromeTypography.countFont)
+                        .foregroundStyle(Color.white)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 7)
+                        .background(
+                            Capsule()
+                                .fill(accent.opacity(colorScheme == .dark ? 0.92 : 0.88))
+                        )
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(accent.opacity(0.92), lineWidth: 1.25)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(discAccessibility)
+                .accessibilityHint("Abre próximos repasos y pronóstico.")
             } else {
                 Color.clear
                     .frame(minWidth: 44, minHeight: 36)
