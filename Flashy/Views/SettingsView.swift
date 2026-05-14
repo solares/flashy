@@ -1,5 +1,7 @@
 import SwiftData
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
@@ -8,6 +10,10 @@ struct SettingsView: View {
     @Query private var cards: [Card]
 
     @State private var confirmReset = false
+    @State private var exportSheetItem: ExportSheetItem?
+    @State private var showExportError = false
+    @State private var showImportPicker = false
+    @State private var importFeedback: ImportFeedback?
 
     private var app: AppState? { appStates.first }
 
@@ -48,6 +54,15 @@ struct SettingsView: View {
                         }
                     }
 
+                    Section("Datos") {
+                        Button("Exportar") {
+                            exportBackup()
+                        }
+                        Button("Importar") {
+                            showImportPicker = true
+                        }
+                    }
+
                     Section {
                         Button("Reiniciar progreso", role: .destructive) {
                             confirmReset = true
@@ -83,6 +98,76 @@ struct SettingsView: View {
             } message: {
                 Text("Esto borra el estado de repaso, pero conserva el contenido de las tarjetas.")
             }
+            .sheet(item: $exportSheetItem) { item in
+                ShareSheet(items: [item.url])
+            }
+            .alert("No se pudo exportar", isPresented: $showExportError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Inténtalo de nuevo.")
+            }
+            .fileImporter(
+                isPresented: $showImportPicker,
+                allowedContentTypes: [.json],
+                allowsMultipleSelection: false
+            ) { result in
+                guard let app = appStates.first else { return }
+                handleImportResult(result, app: app)
+            }
+            .alert(
+                importFeedback?.title ?? "Importación",
+                isPresented: Binding(
+                    get: { importFeedback != nil },
+                    set: { if !$0 { importFeedback = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {
+                    importFeedback = nil
+                }
+            } message: {
+                Text(importFeedback?.message ?? "")
+            }
+        }
+    }
+
+    private func handleImportResult(_ result: Result<[URL], Error>, app: AppState) {
+        switch result {
+        case .failure:
+            importFeedback = ImportFeedback(title: "Importación", message: "No se pudo abrir el archivo.")
+        case .success(let urls):
+            guard let url = urls.first else {
+                importFeedback = ImportFeedback(title: "Importación", message: "No se eligió ningún archivo.")
+                return
+            }
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing { url.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                let data = try Data(contentsOf: url)
+                try BackupImporter.importBackup(data: data, modelContext: modelContext, appState: app)
+                try modelContext.save()
+                NotificationCenter.default.post(name: .flashyProgressReset, object: nil)
+                importFeedback = ImportFeedback(
+                    title: "Importación correcta",
+                    message: "Se restauró la copia de seguridad. Las tarjetas y ajustes anteriores en este dispositivo fueron reemplazados."
+                )
+            } catch {
+                importFeedback = ImportFeedback(
+                    title: "No se pudo importar",
+                    message: "El archivo no es una copia válida de Flashy."
+                )
+            }
+        }
+    }
+
+    private func exportBackup() {
+        guard let app else { return }
+        do {
+            let url = try BackupExporter.export(cards: cards, appState: app)
+            exportSheetItem = ExportSheetItem(url: url)
+        } catch {
+            showExportError = true
         }
     }
 
@@ -106,4 +191,26 @@ struct SettingsView: View {
         NotificationCenter.default.post(name: .flashyProgressReset, object: nil)
         dismiss()
     }
+}
+
+// MARK: - Export share sheet
+
+private struct ImportFeedback {
+    let title: String
+    let message: String
+}
+
+private struct ExportSheetItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

@@ -27,6 +27,7 @@
 		A10000000000000000000012 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* Assets.xcassets */; };
 		A10000000000000000000013 /* FlashyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* FlashyTests.swift */; };
 		A10000000000000000000014 /* UpcomingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* UpcomingView.swift */; };
+		A10000000000000000000015 /* BackupExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* BackupExporter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -60,6 +61,7 @@
 		A20000000000000000000012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000013 /* FlashyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlashyTests.swift; sourceTree = "<group>"; };
 		A20000000000000000000022 /* UpcomingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpcomingView.swift; sourceTree = "<group>"; };
+		A20000000000000000000023 /* BackupExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupExporter.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000020 /* Flashy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Flashy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000021 /* FlashyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FlashyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -142,6 +144,7 @@
 				A20000000000000000000009 /* CardScheduler.swift */,
 				A2000000000000000000000A /* Notifications.swift */,
 				A2000000000000000000000B /* Theme.swift */,
+				A20000000000000000000023 /* BackupExporter.swift */,
 			);
 			path = Logic;
 			sourceTree = "<group>";
@@ -269,6 +272,7 @@
 				A10000000000000000000010 /* SettingsView.swift in Sources */,
 				A10000000000000000000011 /* StatsView.swift in Sources */,
 				A10000000000000000000014 /* UpcomingView.swift in Sources */,
+				A10000000000000000000015 /* BackupExporter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
