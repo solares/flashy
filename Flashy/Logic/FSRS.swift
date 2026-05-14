@@ -28,7 +28,7 @@ enum FSRS {
         let s = max(stability, 0.01)
         let r = min(max(retention, 0.75), 0.99)
         let raw = s / factor * (pow(r, 1.0 / (-decay)) - 1.0)
-        let rounded = max(1, min(Double(Int((raw + 0.001).rounded(.toNearestOrAwayFromZero))), maximumInterval))
+        let rounded = max(1, min(raw, maximumInterval).rounded(.toNearestOrAwayFromZero))
         return rounded
     }
 

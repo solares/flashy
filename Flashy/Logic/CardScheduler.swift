@@ -80,7 +80,7 @@ enum CardScheduler {
     static func studyQueue(cards: [Card], appState: AppState, now: Date = .now) -> [Card] {
         rolloverPacingIfNeeded(appState: appState, now: now)
         let hasStrict = hasScheduledStudyWork(cards: cards, appState: appState, now: now)
-        if !hasStrict, appState.effectiveBonusReviewBudget == 0, appState.currentCardId == nil {
+        if !hasStrict, appState.effectiveBonusReviewBudget == 0 {
             return []
         }
 

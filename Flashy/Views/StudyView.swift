@@ -61,6 +61,9 @@ struct StudyView: View {
     @State private var showSettings = false
     @State private var showUpcoming = false
 
+    /// Scale factor for the counter capsule bump animation when the count increases.
+    @State private var countBumpScale: CGFloat = 1.0
+
     /// Session-only graded-card undo trail (FIFO cap).
     @State private var undoStack: [ReviewSnapshot] = []
     @State private var undoStackAnchoredDay: Date?
@@ -91,7 +94,6 @@ struct StudyView: View {
     private func studyContent(app: AppState) -> some View {
         let now = Date()
         let queue = CardScheduler.studyQueue(cards: cards, appState: app, now: now)
-        let dueNow = cards.filter { CardScheduler.isReviewDue($0, now: now) }.count
         let hasStrict = CardScheduler.hasScheduledStudyWork(cards: cards, appState: app, now: now)
         let isCaughtUp = !cards.isEmpty && !hasStrict && app.effectiveBonusReviewBudget == 0
 
@@ -109,7 +111,7 @@ struct StudyView: View {
                 .allowsHitTesting(false)
 
             VStack(spacing: 0) {
-                headerRow(app: app, dueNow: dueNow, hasStrict: hasStrict)
+                headerRow(app: app, hasStrict: hasStrict)
                 if queue.first != nil {
                     reverseModeToggle(app: app)
                 }
@@ -326,23 +328,20 @@ struct StudyView: View {
         .accessibilityHint("Activa o desactiva mostrar primero el reverso de la tarjeta.")
     }
 
-    private func remainingDiscCount(dueNow: Int, hasStrict: Bool, app: AppState) -> Int? {
+    private func remainingDiscCount(hasStrict: Bool, app: AppState) -> Int? {
         guard !cards.isEmpty else { return nil }
-        let bonus = app.effectiveBonusReviewBudget
-        if dueNow > 0 { return dueNow }
-        if bonus > 0 { return bonus }
-        if hasStrict {
-            let depth = CardScheduler.scheduledStrictQueueCount(cards: cards, appState: app)
-            return depth > 0 ? depth : nil
-        }
-        return nil
+        let strictCount = hasStrict
+            ? CardScheduler.scheduledStrictQueueCount(cards: cards, appState: app)
+            : 0
+        let total = strictCount + app.effectiveBonusReviewBudget
+        return total > 0 ? total : nil
     }
 
-    private func headerRow(app: AppState, dueNow: Int, hasStrict: Bool) -> some View {
+    private func headerRow(app: AppState, hasStrict: Bool) -> some View {
         let accent = FlashyTheme.accent(colorScheme: colorScheme)
-        let bonusMode = dueNow <= 0 && app.effectiveBonusReviewBudget > 0
+        let bonusMode = !hasStrict && app.effectiveBonusReviewBudget > 0
         let discAccessibility: String = {
-            if let n = remainingDiscCount(dueNow: dueNow, hasStrict: hasStrict, app: app) {
+            if let n = remainingDiscCount(hasStrict: hasStrict, app: app) {
                 return bonusMode
                     ? "Práctica extra: quedan \(n)"
                     : "\(n) para hoy"
@@ -350,7 +349,7 @@ struct StudyView: View {
             return ""
         }()
         return HStack(alignment: .center) {
-            if let count = remainingDiscCount(dueNow: dueNow, hasStrict: hasStrict, app: app) {
+            if let count = remainingDiscCount(hasStrict: hasStrict, app: app) {
                 Button {
                     showUpcoming = true
                 } label: {
@@ -372,6 +371,14 @@ struct StudyView: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .scaleEffect(countBumpScale)
+                .onChange(of: count) { old, new in
+                    guard new > old, !reduceMotion else { return }
+                    countBumpScale = 1.22
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.38)) {
+                        countBumpScale = 1.0
+                    }
+                }
                 .accessibilityLabel(discAccessibility)
                 .accessibilityHint("Abre próximos repasos y pronóstico.")
             } else {
