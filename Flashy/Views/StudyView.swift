@@ -60,6 +60,7 @@ struct StudyView: View {
     @State private var showStats = false
     @State private var showSettings = false
     @State private var showUpcoming = false
+    @State private var lookupWord: DictionaryLookupItem?
 
     @State private var showDeleteConfirm = false
     @State private var cardToDelete: Card?
@@ -174,6 +175,9 @@ struct StudyView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .fullScreenCover(item: $lookupWord) { item in
+            DictionaryView(initialWord: item.word)
         }
         .task {
             await MainActor.run {
@@ -325,6 +329,28 @@ struct StudyView: View {
             .accessibilityLabel("Copiar y traducir")
             .accessibilityHint("Copia el texto en español y abre Traductor de Google.")
 
+            Menu {
+                let words = dictionaryMenuWords(from: card.front)
+                if words.isEmpty {
+                    Text("No hay palabras para buscar")
+                } else {
+                    ForEach(words, id: \.self) { word in
+                        Button(word) {
+                            openDictionary(word)
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "book")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.bordered)
+            .tint(accent)
+            .clipShape(Circle())
+            .accessibilityLabel("Diccionario")
+            .accessibilityHint("Elige una palabra de la tarjeta para buscarla en el diccionario.")
+
             Spacer(minLength: 8)
 
             Button {
@@ -365,6 +391,43 @@ struct StudyView: View {
         }
 
         showToast("Copiado")
+    }
+
+    private func openDictionary(_ word: String) {
+        let normalized = DictionaryService.normalize(word)
+        guard !normalized.isEmpty else { return }
+        #if DEBUG
+        print("[Dictionary] selected word='\(word)' normalized='\(normalized)'")
+        #endif
+        lookupWord = DictionaryLookupItem(word: normalized)
+    }
+
+    private func dictionaryMenuWords(from text: String) -> [String] {
+        var seen: Set<String> = []
+        return text
+            .split(whereSeparator: { !$0.isLetter && $0 != "'" })
+            .compactMap { raw -> String? in
+                let word = DictionaryService.normalize(String(raw))
+                guard word.count > 1, !commonDictionarySkipWords.contains(word), !seen.contains(word) else {
+                    return nil
+                }
+                seen.insert(word)
+                return word
+            }
+    }
+
+    private var commonDictionarySkipWords: Set<String> {
+        [
+            "a", "al", "algo", "ante", "aquel", "aquella", "aquellas", "aquello", "aquellos",
+            "como", "con", "cual", "cuando", "de", "del", "desde", "donde", "e", "el", "ella",
+            "él",
+            "ellas", "ello", "ellos", "en", "entre", "era", "eran", "eres", "es", "esa", "esas",
+            "ese", "eso", "esos", "esta", "estaba", "estaban", "estado", "estamos", "estan",
+            "están", "estar", "estas", "este", "esto", "estos", "estoy", "ha", "han", "hasta", "hay",
+            "he", "la", "las", "le", "les", "lo", "los", "mas", "más", "me", "mi", "mí", "mis", "muy", "no",
+            "nos", "o", "para", "pero", "por", "que", "se", "ser", "si", "sin", "son", "soy",
+            "sí", "su", "sus", "te", "tu", "tú", "tus", "un", "una", "unas", "uno", "unos", "y", "yo"
+        ]
     }
 
     private func performDelete(card: Card, app: AppState) {

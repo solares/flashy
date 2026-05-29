@@ -28,12 +28,13 @@ struct CardStack: View {
                     reduceMotion: reduceMotion,
                     colorSchemeContrast: colorSchemeContrast,
                     reverseModeEnabled: reverseModeEnabled,
-                    isFlipped: isActive ? $isFlipped : .constant(false)
-                ) { grade, offset, rotation in
-                    if isActive {
-                        onCommit(grade, offset, rotation)
+                    isFlipped: isActive ? $isFlipped : .constant(false),
+                    onCommit: { grade, offset, rotation in
+                        if isActive {
+                            onCommit(grade, offset, rotation)
+                        }
                     }
-                }
+                )
                 .frame(maxWidth: 340)
                 .scaleEffect(stackPeekScale(depth: index))
                 .offset(y: index == 0 ? 0 : stackPeekOffsetY(depth: index))
