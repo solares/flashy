@@ -31,7 +31,7 @@ private enum StudyChromeTypography {
     static let labelFont = Font.system(size: 17, weight: .semibold, design: .rounded)
     static let iconFont = Font.system(size: 17, weight: .bold)
     /// Header remaining-count emphasis (slightly larger).
-    static let countFont = Font.system(size: 19, weight: .semibold, design: .rounded)
+    static let countFont = Font.system(size: 23, weight: .semibold, design: .rounded)
 
     /// Horizontal / vertical padding for Reverso-style capsule pills.
     static let pillHPadding: CGFloat = 16
@@ -60,6 +60,9 @@ struct StudyView: View {
     @State private var showStats = false
     @State private var showSettings = false
     @State private var showUpcoming = false
+
+    @State private var showDeleteConfirm = false
+    @State private var cardToDelete: Card?
 
     /// Scale factor for the counter capsule bump animation when the count increases.
     @State private var countBumpScale: CGFloat = 1.0
@@ -112,8 +115,8 @@ struct StudyView: View {
 
             VStack(spacing: 0) {
                 headerRow(app: app, hasStrict: hasStrict)
-                if queue.first != nil {
-                    reverseModeToggle(app: app)
+                if let activeCard = queue.first {
+                    reverseModeRow(app: app, card: activeCard)
                 }
                 Spacer(minLength: 8)
                 GeometryReader { geo in
@@ -177,6 +180,19 @@ struct StudyView: View {
                 StreakUpdater.update(app: app, now: Date())
                 try? modelContext.save()
             }
+        }
+        .alert("¿Eliminar esta tarjeta?", isPresented: $showDeleteConfirm) {
+            Button("Cancelar", role: .cancel) {
+                cardToDelete = nil
+            }
+            Button("Eliminar", role: .destructive) {
+                if let card = cardToDelete {
+                    performDelete(card: card, app: app)
+                }
+                cardToDelete = nil
+            }
+        } message: {
+            Text("No se puede deshacer.")
         }
     }
 
@@ -293,39 +309,75 @@ struct StudyView: View {
         .padding(.bottom, 8)
     }
 
-    private func reverseModeToggle(app: AppState) -> some View {
-        let isOn = app.effectiveReverseModeEnabled
+    private func reverseModeRow(app: AppState, card: Card) -> some View {
         let accent = FlashyTheme.accent(colorScheme: colorScheme)
-        let tint = isOn ? accent : Color.secondary
-        return Button {
-            app.reverseModeEnabled = !isOn
-            isFlipped = false
-            try? modelContext.save()
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "arrow.left.arrow.right")
-                    .font(StudyChromeTypography.iconFont)
-                Text("Reverso")
-                    .font(StudyChromeTypography.labelFont)
+        return HStack(alignment: .center, spacing: 0) {
+            Button {
+                copyAndTranslate(card: card)
+            } label: {
+                Image(systemName: "globe")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 32, height: 32)
             }
-            .foregroundStyle(isOn ? Color.white : tint)
-            .padding(.horizontal, StudyChromeTypography.pillHPadding)
-            .padding(.vertical, StudyChromeTypography.pillVPadding)
-            .frame(height: StudyChromeTypography.capsuleRowHeight)
-            .background(isOn ? tint.opacity(colorScheme == .dark ? 0.9 : 0.82) : tint.opacity(0.09))
-            .overlay(
-                Capsule()
-                    .strokeBorder(tint.opacity(isOn ? 0.85 : 0.35), lineWidth: 1.5)
-            )
-            .clipShape(Capsule())
-            .studyPillShadowBackdrop(colorScheme: colorScheme)
+            .buttonStyle(.bordered)
+            .tint(accent)
+            .clipShape(Circle())
+            .accessibilityLabel("Copiar y traducir")
+            .accessibilityHint("Copia el texto en español y abre Traductor de Google.")
+
+            Spacer(minLength: 8)
+
+            Button {
+                cardToDelete = card
+                showDeleteConfirm = true
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .clipShape(Circle())
+            .accessibilityLabel("Eliminar tarjeta")
+            .accessibilityHint("Elimina esta tarjeta de la colección.")
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, -16)
         .padding(.top, 34)
         .padding(.bottom, 8)
-        .accessibilityLabel("Modo reverso")
-        .accessibilityValue(isOn ? "Activado" : "Desactivado")
-        .accessibilityHint("Activa o desactiva mostrar primero el reverso de la tarjeta.")
+    }
+
+    private func copyAndTranslate(card: Card) {
+        UIPasteboard.general.string = card.front
+
+        let gtURL = URL(string: "googletranslate://")!
+        if UIApplication.shared.canOpenURL(gtURL) {
+            UIApplication.shared.open(gtURL)
+        } else {
+            var components = URLComponents(string: "https://translate.google.com/")
+            components?.queryItems = [
+                URLQueryItem(name: "text", value: card.front),
+                URLQueryItem(name: "sl", value: "es"),
+                URLQueryItem(name: "tl", value: "en"),
+            ]
+            if let url = components?.url {
+                UIApplication.shared.open(url)
+            }
+        }
+
+        showToast("Copiado")
+    }
+
+    private func performDelete(card: Card, app: AppState) {
+        modelContext.delete(card)
+        var seen = app.bonusSeenCardIds
+        seen.removeAll { $0 == card.id }
+        app.bonusSeenCardIds = seen
+        if app.currentCardId == card.id {
+            app.currentCardId = nil
+        }
+        clearUndoStack()
+        try? modelContext.save()
+        syncCurrentCardIfNeeded(app: app)
     }
 
     private func remainingDiscCount(hasStrict: Bool, app: AppState) -> Int? {
@@ -388,16 +440,7 @@ struct StudyView: View {
             }
             Spacer()
             HStack(spacing: 8) {
-                Button {
-                    toggleColorScheme(app: app)
-                } label: {
-                    Image(systemName: colorSchemeIcon(app: app))
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.bordered)
-                .tint(accent)
-                .clipShape(Circle())
+                reverseModeHeaderButton(app: app, accent: accent)
 
                 Button {
                     showStats = true
@@ -529,24 +572,29 @@ struct StudyView: View {
         .accessibilityHint("Repasa la tarjeta actual y avanza a la siguiente.")
     }
 
-    private func colorSchemeIcon(app: AppState) -> String {
-        switch app.darkModeOverrideRaw {
-        case "dark": return "moon.fill"
-        case "light": return "sun.max.fill"
-        default: return "circle.lefthalf.filled"
+    @ViewBuilder
+    private func reverseModeHeaderButton(app: AppState, accent: Color) -> some View {
+        let isOn = app.effectiveReverseModeEnabled
+        let label = Button {
+            app.reverseModeEnabled = !isOn
+            isFlipped = false
+            try? modelContext.save()
+        } label: {
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 32, height: 32)
         }
-    }
+        .tint(accent)
+        .clipShape(Circle())
+        .accessibilityLabel("Modo reverso")
+        .accessibilityValue(isOn ? "Activado" : "Desactivado")
+        .accessibilityHint("Activa o desactiva mostrar primero el reverso de la tarjeta.")
 
-    private func toggleColorScheme(app: AppState) {
-        switch app.darkModeOverrideRaw {
-        case nil:
-            app.darkModeOverrideRaw = "dark"
-        case "dark":
-            app.darkModeOverrideRaw = "light"
-        default:
-            app.darkModeOverrideRaw = nil
+        if isOn {
+            label.buttonStyle(.borderedProminent)
+        } else {
+            label.buttonStyle(.bordered)
         }
-        try? modelContext.save()
     }
 
     private func syncCurrentCardIfNeeded(app: AppState) {

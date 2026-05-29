@@ -21,6 +21,21 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 if let app {
+                    Section("Apariencia") {
+                        Picker("Tema", selection: Binding(
+                            get: { app.darkModeOverrideRaw ?? "system" },
+                            set: { newValue in
+                                app.darkModeOverrideRaw = newValue == "system" ? nil : newValue
+                                try? modelContext.save()
+                            }
+                        )) {
+                            Text("Sistema").tag("system")
+                            Text("Oscuro").tag("dark")
+                            Text("Claro").tag("light")
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
                     Section("Estudio") {
                         Stepper(value: Binding(
                             get: { app.newCardsPerDay },
