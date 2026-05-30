@@ -177,7 +177,7 @@ struct StudyView: View {
             SettingsView()
         }
         .fullScreenCover(item: $lookupWord) { item in
-            DictionaryView(initialWord: item.word)
+            DictionaryView(suggestedWords: item.suggestedWords)
         }
         .task {
             await MainActor.run {
@@ -317,6 +317,19 @@ struct StudyView: View {
         let accent = FlashyTheme.accent(colorScheme: colorScheme)
         return HStack(alignment: .center, spacing: 0) {
             Button {
+                openDictionary(for: card)
+            } label: {
+                Image(systemName: "book")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.bordered)
+            .tint(accent)
+            .clipShape(Circle())
+            .accessibilityLabel("Diccionario")
+            .accessibilityHint("Abre el diccionario.")
+
+            Button {
                 copyAndTranslate(card: card)
             } label: {
                 Image(systemName: "globe")
@@ -328,28 +341,6 @@ struct StudyView: View {
             .clipShape(Circle())
             .accessibilityLabel("Copiar y traducir")
             .accessibilityHint("Copia el texto en español y abre Traductor de Google.")
-
-            Menu {
-                let words = dictionaryMenuWords(from: card.front)
-                if words.isEmpty {
-                    Text("No hay palabras para buscar")
-                } else {
-                    ForEach(words, id: \.self) { word in
-                        Button(word) {
-                            openDictionary(word)
-                        }
-                    }
-                }
-            } label: {
-                Image(systemName: "book")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.bordered)
-            .tint(accent)
-            .clipShape(Circle())
-            .accessibilityLabel("Diccionario")
-            .accessibilityHint("Elige una palabra de la tarjeta para buscarla en el diccionario.")
 
             Spacer(minLength: 8)
 
@@ -393,13 +384,10 @@ struct StudyView: View {
         showToast("Copiado")
     }
 
-    private func openDictionary(_ word: String) {
-        let normalized = DictionaryService.normalize(word)
-        guard !normalized.isEmpty else { return }
-        #if DEBUG
-        print("[Dictionary] selected word='\(word)' normalized='\(normalized)'")
-        #endif
-        lookupWord = DictionaryLookupItem(word: normalized)
+    private func openDictionary(for card: Card) {
+        lookupWord = DictionaryLookupItem(
+            suggestedWords: dictionaryMenuWords(from: card.front)
+        )
     }
 
     private func dictionaryMenuWords(from text: String) -> [String] {
