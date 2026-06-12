@@ -12,9 +12,11 @@ struct UpcomingView: View {
     var body: some View {
         let now = Date()
         let rows = UpcomingCalculator.recallBucketsToday(cards: cards, now: now)
+        let allRows = UpcomingCalculator.recallBucketsAll(cards: cards, now: now)
         NavigationStack {
             List {
                 recallChartSection(rows: rows)
+                allCardsChartSection(rows: allRows)
             }
             .navigationTitle("Próximas")
             .navigationDestination(item: $selectedBucket) { selection in
@@ -32,8 +34,50 @@ struct UpcomingView: View {
     }
 
     @ViewBuilder
+    private func allCardsChartSection(rows: [UpcomingCalculator.RecallBucketRow]) -> some View {
+        Section("Todas las tarjetas") {
+            let total = rows.map(\.count).reduce(0, +)
+            if total == 0 {
+                Text("Sin tarjetas")
+                    .foregroundStyle(.secondary)
+            } else {
+                Chart(rows.filter { $0.count > 0 }) { row in
+                    SectorMark(
+                        angle: .value("Tarjetas", row.count),
+                        innerRadius: .ratio(0.5),
+                        angularInset: 2
+                    )
+                    .foregroundStyle(UpcomingCalculator.bucketColor(for: row.id, colorScheme: colorScheme))
+                    .annotation(position: .overlay) {
+                        Text("\(row.count)")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                    }
+                }
+                .chartLegend(position: .bottom, alignment: .center, spacing: 12) {
+                    let active = rows.filter { $0.count > 0 }
+                    HStack(spacing: 12) {
+                        ForEach(active) { row in
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(UpcomingCalculator.bucketColor(for: row.id, colorScheme: colorScheme))
+                                    .frame(width: 8, height: 8)
+                                Text(row.title)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .frame(height: 220)
+                .padding(.vertical, 8)
+            }
+        }
+    }
+
+    @ViewBuilder
     private func recallChartSection(rows: [UpcomingCalculator.RecallBucketRow]) -> some View {
-        Section("Probabilidad de recuerdo (hoy)") {
+        Section("Vence hoy") {
             let total = rows.map(\.count).reduce(0, +)
             if total == 0 {
                 Text("Nada por ahora")
@@ -118,6 +162,29 @@ enum UpcomingCalculator {
         var cardCount: Int
     }
 
+    static func recallBucketsAll(cards: [Card], now: Date) -> [RecallBucketRow] {
+        var newCount = 0, risk = 0, fragile = 0, strong = 0, solid = 0
+        for card in cards {
+            switch card.state {
+            case .new:
+                newCount += 1
+            case .learning, .review:
+                let r = CardScheduler.retrievability(for: card, now: now)
+                if r < 0.5 { risk += 1 }
+                else if r < 0.75 { fragile += 1 }
+                else if r < 0.9 { strong += 1 }
+                else { solid += 1 }
+            }
+        }
+        return [
+            RecallBucketRow(id: "new", title: "Nueva", count: newCount),
+            RecallBucketRow(id: "risk", title: "En riesgo", count: risk),
+            RecallBucketRow(id: "fragile", title: "Frágil", count: fragile),
+            RecallBucketRow(id: "strong", title: "Fuerte", count: strong),
+            RecallBucketRow(id: "solid", title: "Sólida", count: solid),
+        ]
+    }
+
     static func recallBucketsToday(cards: [Card], now: Date) -> [RecallBucketRow] {
         let endToday = DateRollover.startOfNextLocalDay(for: now)
         let queue = cards.filter { card in
@@ -168,6 +235,8 @@ enum UpcomingCalculator {
 
     static func bucketColor(for bucketId: String, colorScheme: ColorScheme) -> Color {
         switch bucketId {
+        case "new":
+            return Color.purple.opacity(colorScheme == .dark ? 0.75 : 0.65)
         case "risk":
             return FlashyTheme.swipeRed.opacity(colorScheme == .dark ? 0.9 : 0.82)
         case "fragile":

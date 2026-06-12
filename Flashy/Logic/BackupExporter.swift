@@ -57,6 +57,7 @@ struct AppStateBackup: Codable {
     var bonusReviewBudget: Int?
     var reverseModeEnabled: Bool?
     var bonusSeenCardIdsRaw: String?
+    var didRunDifficultyRescueV1: Bool?
 
     init(from app: AppState) {
         darkModeOverrideRaw = app.darkModeOverrideRaw
@@ -72,6 +73,7 @@ struct AppStateBackup: Codable {
         bonusReviewBudget = app.bonusReviewBudget
         reverseModeEnabled = app.reverseModeEnabled
         bonusSeenCardIdsRaw = app.bonusSeenCardIdsRaw
+        didRunDifficultyRescueV1 = app.didRunDifficultyRescueV1
     }
 }
 
@@ -173,5 +175,6 @@ enum BackupImporter {
         app.bonusReviewBudget = s.bonusReviewBudget
         app.reverseModeEnabled = s.reverseModeEnabled
         app.bonusSeenCardIdsRaw = s.bonusSeenCardIdsRaw
+        app.didRunDifficultyRescueV1 = s.didRunDifficultyRescueV1
     }
 }

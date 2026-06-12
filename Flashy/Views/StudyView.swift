@@ -91,6 +91,7 @@ struct StudyView: View {
         }
         .task {
             await bootstrapAppState()
+            await runDifficultyRescueIfNeeded()
         }
     }
 
@@ -290,7 +291,7 @@ struct StudyView: View {
             Text("Estás al día")
                 .font(.title2.weight(.semibold))
                 .multilineTextAlignment(.center)
-            Text("No hay nada pendiente ahora. Seguir estudiando agrega hasta \(n) repasos extra antes del próximo descanso.")
+            Text("Repaso de refuerzo: hasta \(n) tarjetas olvidadas y difíciles, a tu ritmo.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -301,13 +302,13 @@ struct StudyView: View {
                 try? modelContext.save()
                 syncCurrentCardIfNeeded(app: app)
             } label: {
-                Text("Seguir estudiando")
+                Text("Reforzar vocabulario")
                     .font(.title3.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 78)
             }
             .buttonStyle(.borderedProminent)
             .tint(FlashyTheme.accent(colorScheme: colorScheme))
-            .accessibilityHint("Empieza hasta \(n) repasos extra.")
+            .accessibilityHint("Repasa tarjetas olvidadas y difíciles; hasta \(n) repasos.")
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
@@ -446,7 +447,7 @@ struct StudyView: View {
         let discAccessibility: String = {
             if let n = remainingDiscCount(hasStrict: hasStrict, app: app) {
                 return bonusMode
-                    ? "Práctica extra: quedan \(n)"
+                    ? "Repaso de refuerzo: quedan \(n)"
                     : "\(n) para hoy"
             }
             return ""
@@ -875,6 +876,15 @@ struct StudyView: View {
         guard appStates.isEmpty else { return }
         let a = AppState()
         modelContext.insert(a)
+        try? modelContext.save()
+    }
+
+    @MainActor
+    private func runDifficultyRescueIfNeeded() async {
+        guard let app = appState else { return }
+        guard !app.effectiveDidRunDifficultyRescueV1 else { return }
+        let allCards = (try? modelContext.fetch(FetchDescriptor<Card>())) ?? []
+        _ = DifficultyRescue.runIfNeeded(cards: allCards, appState: app)
         try? modelContext.save()
     }
 }

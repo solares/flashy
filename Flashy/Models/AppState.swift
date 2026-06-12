@@ -30,6 +30,9 @@ final class AppState {
     /// Newline-separated card ids reviewed in the current “Keep studying” round. `nil` for legacy rows / no seen cards.
     var bonusSeenCardIdsRaw: String?
 
+    /// One-shot guard for `DifficultyRescue.runIfNeeded`. `nil` for legacy rows (= false).
+    var didRunDifficultyRescueV1: Bool?
+
     init(
         darkModeOverrideRaw: String? = nil,
         newCardsPerDay: Int = 15,
@@ -43,7 +46,8 @@ final class AppState {
         studyBackgroundRaw: String? = nil,
         bonusReviewBudget: Int? = nil,
         reverseModeEnabled: Bool? = nil,
-        bonusSeenCardIdsRaw: String? = nil
+        bonusSeenCardIdsRaw: String? = nil,
+        didRunDifficultyRescueV1: Bool? = nil
     ) {
         self.darkModeOverrideRaw = darkModeOverrideRaw
         self.newCardsPerDay = newCardsPerDay
@@ -58,6 +62,7 @@ final class AppState {
         self.bonusReviewBudget = bonusReviewBudget
         self.reverseModeEnabled = reverseModeEnabled
         self.bonusSeenCardIdsRaw = bonusSeenCardIdsRaw
+        self.didRunDifficultyRescueV1 = didRunDifficultyRescueV1
     }
 
     /// Use for scheduling UI; persisted optional is `nil` only on unmigrated legacy rows (treated as 0).
@@ -68,6 +73,10 @@ final class AppState {
     /// Use for study UI; persisted optional is `nil` only on unmigrated legacy rows (treated as false).
     var effectiveReverseModeEnabled: Bool {
         reverseModeEnabled ?? false
+    }
+
+    var effectiveDidRunDifficultyRescueV1: Bool {
+        didRunDifficultyRescueV1 ?? false
     }
 
     var bonusSeenCardIds: [String] {

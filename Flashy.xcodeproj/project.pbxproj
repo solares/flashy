@@ -31,6 +31,7 @@
 		A10000000000000000000016 /* DictionaryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* DictionaryService.swift */; };
 		A10000000000000000000017 /* WordFlowText.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* WordFlowText.swift */; };
 		A10000000000000000000018 /* DictionaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* DictionaryView.swift */; };
+		A10000000000000000000019 /* DifficultyRescue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* DifficultyRescue.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,6 +69,7 @@
 		A20000000000000000000024 /* DictionaryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryService.swift; sourceTree = "<group>"; };
 		A20000000000000000000025 /* WordFlowText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordFlowText.swift; sourceTree = "<group>"; };
 		A20000000000000000000026 /* DictionaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryView.swift; sourceTree = "<group>"; };
+		A20000000000000000000027 /* DifficultyRescue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DifficultyRescue.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000020 /* Flashy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Flashy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000021 /* FlashyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FlashyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -151,6 +153,7 @@
 				A2000000000000000000000A /* Notifications.swift */,
 				A2000000000000000000000B /* Theme.swift */,
 				A20000000000000000000023 /* BackupExporter.swift */,
+				A20000000000000000000027 /* DifficultyRescue.swift */,
 				A20000000000000000000024 /* DictionaryService.swift */,
 			);
 			path = Logic;
@@ -285,6 +288,7 @@
 				A10000000000000000000016 /* DictionaryService.swift in Sources */,
 				A10000000000000000000017 /* WordFlowText.swift in Sources */,
 				A10000000000000000000018 /* DictionaryView.swift in Sources */,
+				A10000000000000000000019 /* DifficultyRescue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

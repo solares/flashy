@@ -13,6 +13,9 @@ enum FSRS {
     private static let decay: Double = 0.5
     private static let maximumInterval: Double = 36500
 
+    /// Pulls difficulty toward easy on each correct answer (two-button decks lack an Easy rating).
+    private static let goodMeanReversionStrength: Double = 0.06
+
     private static var factor: Double {
         pow(0.9, 1.0 / (-decay)) - 1.0
     }
@@ -79,7 +82,8 @@ enum FSRS {
         card.reps += 1
         card.lastReviewedAt = now
         let intervalDays = nextIntervalDays(stability: s, retention: retention)
-        card.nextDueAt = now.addingTimeInterval(intervalDays * 86400)
+        let fuzzedDays = fuzzIntervalDays(intervalDays)
+        card.nextDueAt = now.addingTimeInterval(fuzzedDays * 86400)
         card.difficulty = round2(d)
         card.stability = round2(s)
 
@@ -116,15 +120,26 @@ enum FSRS {
         deltaD * (10 - oldD) / 9
     }
 
-    private static func meanReversion(initValue: Double, current: Double) -> Double {
-        w[7] * initValue + (1 - w[7]) * current
+    private static func meanReversion(initValue: Double, current: Double, strength: Double) -> Double {
+        let k = min(max(strength, 0), 1)
+        return k * initValue + (1 - k) * current
     }
 
     private static func nextDifficulty(lastD: Double, rating: Int) -> Double {
         let deltaD = -w[6] * (Double(rating) - 3)
         let nextD = lastD + linearDamping(deltaD: deltaD, oldD: lastD)
         let initEasy = initDifficulty(rating: 4)
-        return constrainDifficulty(meanReversion(initValue: initEasy, current: nextD))
+        let strength = rating >= 3 ? goodMeanReversionStrength : w[7]
+        return constrainDifficulty(meanReversion(initValue: initEasy, current: nextD, strength: strength))
+    }
+
+    /// Anki-style interval fuzz: spreads cards that would otherwise share the same interval.
+    private static func fuzzIntervalDays(_ intervalDays: Double) -> Double {
+        let base = max(1, intervalDays.rounded(.toNearestOrAwayFromZero))
+        let spread = max(1, (base * 0.05).rounded(.toNearestOrAwayFromZero))
+        let lower = max(1, base - spread)
+        let upper = base + spread
+        return max(1, Double.random(in: lower...upper))
     }
 
     private static func nextRecallStability(d: Double, s: Double, r: Double, rating: Int) -> Double {
