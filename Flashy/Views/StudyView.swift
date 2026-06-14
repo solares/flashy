@@ -4,6 +4,24 @@ import UIKit
 
 // MARK: - Review undo stack (session-only; not persisted)
 
+/// Resolved queue/header state for one study screen frame (live or frozen during fly-off).
+private struct StudySessionLayout {
+    let queue: [Card]
+    let hasStrict: Bool
+    let isCaughtUp: Bool
+    let remainingCount: Int?
+    let activeForBottomBar: Card?
+}
+
+/// Frozen scheduler/UI state while the active card flies off-screen (avoids O(n) recomputation per animation frame).
+private struct CommitAnimationSnapshot {
+    let queue: [Card]
+    let hasStrict: Bool
+    let remainingCount: Int?
+    let isCaughtUp: Bool
+    let activeCardId: String
+}
+
 private struct ReviewSnapshot {
     let cardId: String
     let grade: Grade
@@ -72,6 +90,7 @@ struct StudyView: View {
     @State private var undoStack: [ReviewSnapshot] = []
     @State private var undoStackAnchoredDay: Date?
     @State private var suppressNextFlipReset = false
+    @State private var commitAnimationSnapshot: CommitAnimationSnapshot?
 
     private let undoCap = 50
 
@@ -97,10 +116,21 @@ struct StudyView: View {
 
     @ViewBuilder
     private func studyContent(app: AppState) -> some View {
-        let now = Date()
-        let queue = CardScheduler.studyQueue(cards: cards, appState: app, now: now)
-        let hasStrict = CardScheduler.hasScheduledStudyWork(cards: cards, appState: app, now: now)
-        let isCaughtUp = !cards.isEmpty && !hasStrict && app.effectiveBonusReviewBudget == 0
+        let layout = studySessionLayout(app: app)
+        let queue = layout.queue
+        let hasStrict = layout.hasStrict
+        let isCaughtUp = layout.isCaughtUp
+        let remainingCount = layout.remainingCount
+        let activeForBottomBar = layout.activeForBottomBar
+        let snapshotForCommit = activeForBottomBar.map { active in
+            CommitAnimationSnapshot(
+                queue: queue.isEmpty ? [active] : queue,
+                hasStrict: hasStrict,
+                remainingCount: remainingCount,
+                isCaughtUp: isCaughtUp,
+                activeCardId: active.id
+            )
+        }
 
         let screenBg = FlashyTheme.StudyBackgroundPreset.resolved(raw: app.studyBackgroundRaw)
             .fillColor(colorScheme: colorScheme)
@@ -116,15 +146,22 @@ struct StudyView: View {
                 .allowsHitTesting(false)
 
             VStack(spacing: 0) {
-                headerRow(app: app, hasStrict: hasStrict)
+                headerRow(app: app, hasStrict: hasStrict, remainingCount: remainingCount)
                 if let activeCard = queue.first {
                     reverseModeRow(app: app, card: activeCard)
                 }
                 Spacer(minLength: 8)
                 GeometryReader { geo in
-                    middleStudyCanvas(geo: geo, queue: queue, isCaughtUp: isCaughtUp, app: app)
+                    middleStudyCanvas(
+                        geo: geo,
+                        queue: queue,
+                        fallbackActive: activeForBottomBar,
+                        commitSnapshot: snapshotForCommit,
+                        isCaughtUp: isCaughtUp,
+                        app: app
+                    )
                 }
-                bottomArrowsRow(active: swipeCommitTargetCard(queue: queue, app: app), app: app)
+                bottomArrowsRow(active: activeForBottomBar, app: app, commitSnapshot: snapshotForCommit)
             }
             .padding(.horizontal, 16)
 
@@ -201,6 +238,27 @@ struct StudyView: View {
         }
     }
 
+    private func studySessionLayout(app: AppState, now: Date = Date()) -> StudySessionLayout {
+        if let snap = commitAnimationSnapshot {
+            return StudySessionLayout(
+                queue: snap.queue,
+                hasStrict: snap.hasStrict,
+                isCaughtUp: snap.isCaughtUp,
+                remainingCount: snap.remainingCount,
+                activeForBottomBar: snap.queue.first { $0.id == snap.activeCardId } ?? snap.queue.first
+            )
+        }
+        let queue = CardScheduler.studyQueue(cards: cards, appState: app, now: now)
+        let hasStrict = CardScheduler.hasScheduledStudyWork(cards: cards, appState: app, now: now)
+        return StudySessionLayout(
+            queue: queue,
+            hasStrict: hasStrict,
+            isCaughtUp: !cards.isEmpty && !hasStrict && app.effectiveBonusReviewBudget == 0,
+            remainingCount: remainingDiscCount(hasStrict: hasStrict, app: app),
+            activeForBottomBar: swipeCommitTargetCard(queue: queue, app: app)
+        )
+    }
+
     /// Resolves swipe targets when `studyQueue`'s leading card is briefly out of sync with SwiftUI (keeps bottom bar steady).
     private func swipeCommitTargetCard(queue: [Card], app: AppState) -> Card? {
         let now = Date()
@@ -221,6 +279,8 @@ struct StudyView: View {
     private func middleStudyCanvas(
         geo: GeometryProxy,
         queue: [Card],
+        fallbackActive: Card?,
+        commitSnapshot: CommitAnimationSnapshot?,
         isCaughtUp: Bool,
         app: AppState
     ) -> some View {
@@ -237,12 +297,21 @@ struct StudyView: View {
                 flyOffset: $flyOffset,
                 flyRotation: $flyRotation,
                 onCommit: { grade, offset, rotation in
-                    commit(active: active, grade: grade, app: app, releaseOffset: offset, releaseRotation: rotation)
+                    if let commitSnapshot {
+                        commit(
+                            active: active,
+                            grade: grade,
+                            app: app,
+                            snapshot: commitSnapshot,
+                            releaseOffset: offset,
+                            releaseRotation: rotation
+                        )
+                    }
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .offset(y: -44)
-        } else if let salvage = swipeCommitTargetCard(queue: queue, app: app) {
+        } else if let salvage = fallbackActive {
             CardStack(
                 stack: [salvage],
                 cardWidth: w,
@@ -254,7 +323,16 @@ struct StudyView: View {
                 flyOffset: $flyOffset,
                 flyRotation: $flyRotation,
                 onCommit: { grade, offset, rotation in
-                    commit(active: salvage, grade: grade, app: app, releaseOffset: offset, releaseRotation: rotation)
+                    if let commitSnapshot {
+                        commit(
+                            active: salvage,
+                            grade: grade,
+                            app: app,
+                            snapshot: commitSnapshot,
+                            releaseOffset: offset,
+                            releaseRotation: rotation
+                        )
+                    }
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -441,11 +519,11 @@ struct StudyView: View {
         return total > 0 ? total : nil
     }
 
-    private func headerRow(app: AppState, hasStrict: Bool) -> some View {
+    private func headerRow(app: AppState, hasStrict: Bool, remainingCount: Int?) -> some View {
         let accent = FlashyTheme.accent(colorScheme: colorScheme)
         let bonusMode = !hasStrict && app.effectiveBonusReviewBudget > 0
         let discAccessibility: String = {
-            if let n = remainingDiscCount(hasStrict: hasStrict, app: app) {
+            if let n = remainingCount {
                 return bonusMode
                     ? "Repaso de refuerzo: quedan \(n)"
                     : "\(n) para hoy"
@@ -453,7 +531,7 @@ struct StudyView: View {
             return ""
         }()
         return HStack(alignment: .center) {
-            if let count = remainingDiscCount(hasStrict: hasStrict, app: app) {
+            if let count = remainingCount {
                 Button {
                     showUpcoming = true
                 } label: {
@@ -520,22 +598,22 @@ struct StudyView: View {
     }
 
     @ViewBuilder
-    private func bottomArrowsRow(active: Card?, app: AppState) -> some View {
-        if let active {
+    private func bottomArrowsRow(active: Card?, app: AppState, commitSnapshot: CommitAnimationSnapshot?) -> some View {
+        if let active, let commitSnapshot {
             HStack(spacing: 12) {
                 swipeHintBox(
                     title: "Otra vez",
                     systemImage: "arrow.left",
                     color: FlashyTheme.swipeRed
                 ) {
-                    commit(active: active, grade: .again, app: app)
+                    commit(active: active, grade: .again, app: app, snapshot: commitSnapshot)
                 }
                 swipeHintBox(
                     title: "Bien",
                     systemImage: "arrow.right",
                     color: FlashyTheme.swipeGreen
                 ) {
-                    commit(active: active, grade: .good, app: app)
+                    commit(active: active, grade: .good, app: app, snapshot: commitSnapshot)
                 }
             }
             .padding(.bottom, 8)
@@ -692,9 +770,11 @@ struct StudyView: View {
         active: Card,
         grade: Grade,
         app: AppState,
+        snapshot: CommitAnimationSnapshot,
         releaseOffset: CGSize = .zero,
         releaseRotation: Double = 0
     ) {
+        commitAnimationSnapshot = snapshot
         invalidateUndoStackIfAnchoredDayMismatch()
         enqueueUndoSnapshot(
             ReviewSnapshot(
@@ -732,58 +812,64 @@ struct StudyView: View {
             flashOpacity = 0.35
         }
 
+        let flyAnimation = reduceMotion ? Animation.linear(duration: 0.15) : .easeOut(duration: 0.3)
         flyOffset = releaseOffset
         flyRotation = releaseRotation
-        withAnimation(.easeOut(duration: 0.3)) {
+        withAnimation(flyAnimation) {
             flyOffset = CGSize(
                 width: releaseOffset.width + dir * (screenW + 50),
                 height: releaseOffset.height
             )
             flyRotation = dir > 0 ? 20 : -20
+        } completion: {
+            Task { @MainActor in
+                await Task.yield()
+                performPostSwipeWork(active: active, grade: grade, app: app)
+            }
         }
+    }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
-            FSRS.applyReview(to: active, grade: grade, now: Date(), retention: app.retentionTarget)
-            let bonusBefore = app.effectiveBonusReviewBudget
-            if bonusBefore > 0 {
-                var seen = app.bonusSeenCardIds
-                if !seen.contains(active.id) {
-                    seen.append(active.id)
-                    app.bonusSeenCardIds = seen
-                }
-                app.bonusReviewBudget = bonusBefore - 1
+    private func performPostSwipeWork(active: Card, grade: Grade, app: AppState) {
+        FSRS.applyReview(to: active, grade: grade, now: Date(), retention: app.retentionTarget)
+        let bonusBefore = app.effectiveBonusReviewBudget
+        if bonusBefore > 0 {
+            var seen = app.bonusSeenCardIds
+            if !seen.contains(active.id) {
+                seen.append(active.id)
+                app.bonusSeenCardIds = seen
             }
-            flyOffset = .zero
-            flyRotation = 0
-            isFlipped = false
-            let refreshed = (try? modelContext.fetch(FetchDescriptor<Card>())) ?? []
-            let now = Date()
-            let hasStrict = CardScheduler.hasScheduledStudyWork(cards: refreshed, appState: app, now: now)
-            let allowNext = hasStrict || app.effectiveBonusReviewBudget > 0
-            if allowNext, let pick = CardScheduler.pickStudyCard(
-                cards: refreshed,
-                appState: app,
-                now: now,
-                respectCurrentCard: false
-            ) {
-                app.currentCardId = pick.card.id
-                CardScheduler.beginDisplaying(
-                    pick.card,
-                    appState: app,
-                    countTowardDailyNewCap: pick.countNewTowardDailyCap
-                )
-            } else if !hasStrict {
-                app.currentCardId = nil
-                app.bonusReviewBudget = 0
-                app.bonusSeenCardIds = []
-            } else {
-                app.currentCardId = nil
-            }
-            withAnimation(.easeOut(duration: 0.2)) {
-                flashOpacity = 0
-            }
-            try? modelContext.save()
+            app.bonusReviewBudget = bonusBefore - 1
         }
+        flyOffset = .zero
+        flyRotation = 0
+        isFlipped = false
+        let now = Date()
+        let hasStrict = CardScheduler.hasScheduledStudyWork(cards: cards, appState: app, now: now)
+        let allowNext = hasStrict || app.effectiveBonusReviewBudget > 0
+        if allowNext, let pick = CardScheduler.pickStudyCard(
+            cards: cards,
+            appState: app,
+            now: now,
+            respectCurrentCard: false
+        ) {
+            app.currentCardId = pick.card.id
+            CardScheduler.beginDisplaying(
+                pick.card,
+                appState: app,
+                countTowardDailyNewCap: pick.countNewTowardDailyCap
+            )
+        } else if !hasStrict {
+            app.currentCardId = nil
+            app.bonusReviewBudget = 0
+            app.bonusSeenCardIds = []
+        } else {
+            app.currentCardId = nil
+        }
+        withAnimation(.easeOut(duration: 0.2)) {
+            flashOpacity = 0
+        }
+        commitAnimationSnapshot = nil
+        try? modelContext.save()
     }
 
     private func undoLast(app: AppState) {
