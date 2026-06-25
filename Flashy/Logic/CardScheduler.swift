@@ -10,7 +10,7 @@ struct StudyPick {
 
 enum CardScheduler {
     /// How many graded reviews one bonus resurfacing session grants when there is no strict queue work.
-    static let bonusSessionReviewCount = 25
+    static let bonusSessionReviewCount = 10
 
     /// High-difficulty threshold for bonus-session drilling pool.
     private static let highDifficultyThreshold = 8.5
@@ -101,7 +101,7 @@ enum CardScheduler {
 
         if queue.isEmpty, appState.effectiveBonusReviewBudget > 0 {
             let seen = Set(appState.bonusSeenCardIds)
-            queue = relaxedPracticeOrdering(cards: cards.filter { !seen.contains($0.id) }, now: now)
+            queue = relaxedPracticeOrdering(cards: bonusPracticeCandidates(from: cards, seen: seen), now: now)
         }
 
         if let cid = appState.currentCardId,
@@ -164,7 +164,7 @@ enum CardScheduler {
         guard appState.effectiveBonusReviewBudget > 0 else { return nil }
 
         let seen = Set(appState.bonusSeenCardIds)
-        let bonusCandidates = cards.filter { !seen.contains($0.id) }
+        let bonusCandidates = bonusPracticeCandidates(from: cards, seen: seen)
         guard !bonusCandidates.isEmpty else { return nil }
 
         let ordered = relaxedPracticeOrdering(cards: bonusCandidates, now: now)
@@ -195,16 +195,15 @@ enum CardScheduler {
 
     // MARK: - Private
 
-    /// Bonus practice ordering: new cards first, then a blend of low-retrievability and high-difficulty cards.
-    private static func relaxedPracticeOrdering(cards: [Card], now: Date) -> [Card] {
-        let allNew = cards.filter { $0.state == .new }.sorted { sortNewQueue($0, $1) }
-        if !allNew.isEmpty {
-            return allNew
-        }
+    private static func bonusPracticeCandidates(from cards: [Card], seen: Set<String>) -> [Card] {
+        cards.filter { !seen.contains($0.id) && $0.state != .new }
+    }
 
+    /// Bonus practice ordering: blend of low-retrievability and high-difficulty mature cards.
+    private static func relaxedPracticeOrdering(cards: [Card], now: Date) -> [Card] {
         let mature = cards.filter { $0.state == .review || $0.state == .learning }
         guard !mature.isEmpty else {
-            return cards.sorted { $0.id < $1.id }
+            return []
         }
 
         let forgotten = mature

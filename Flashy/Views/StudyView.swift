@@ -60,6 +60,7 @@ private enum StudyChromeTypography {
 
 struct StudyView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.colorScheme) private var colorScheme
@@ -91,6 +92,8 @@ struct StudyView: View {
     @State private var undoStackAnchoredDay: Date?
     @State private var suppressNextFlipReset = false
     @State private var commitAnimationSnapshot: CommitAnimationSnapshot?
+    /// Scheduler "now" for peek cards; bumped on warm start, card commit, and passive refresh.
+    @State private var studyQueueClock = Date()
 
     private let undoCap = 50
 
@@ -111,6 +114,7 @@ struct StudyView: View {
         .task {
             await bootstrapAppState()
             await runDifficultyRescueIfNeeded()
+            await runLeechRebalanceIfNeeded()
         }
     }
 
@@ -122,7 +126,13 @@ struct StudyView: View {
         let isCaughtUp = layout.isCaughtUp
         let remainingCount = layout.remainingCount
         let activeForBottomBar = layout.activeForBottomBar
-        let snapshotForCommit = activeForBottomBar.map { active in
+        let stackReady = StudySessionRefresh.isStackDisplayReady(
+            appState: app,
+            cards: cards,
+            queue: queue,
+            now: studyQueueClock
+        )
+        let snapshotForCommit = stackReady ? activeForBottomBar.map { active in
             CommitAnimationSnapshot(
                 queue: queue.isEmpty ? [active] : queue,
                 hasStrict: hasStrict,
@@ -130,7 +140,7 @@ struct StudyView: View {
                 isCaughtUp: isCaughtUp,
                 activeCardId: active.id
             )
-        }
+        } : nil
 
         let screenBg = FlashyTheme.StudyBackgroundPreset.resolved(raw: app.studyBackgroundRaw)
             .fillColor(colorScheme: colorScheme)
@@ -147,7 +157,7 @@ struct StudyView: View {
 
             VStack(spacing: 0) {
                 headerRow(app: app, hasStrict: hasStrict, remainingCount: remainingCount)
-                if let activeCard = queue.first {
+                if stackReady, let activeCard = queue.first {
                     reverseModeRow(app: app, card: activeCard)
                 }
                 Spacer(minLength: 8)
@@ -155,13 +165,13 @@ struct StudyView: View {
                     middleStudyCanvas(
                         geo: geo,
                         queue: queue,
-                        fallbackActive: activeForBottomBar,
+                        stackReady: stackReady,
                         commitSnapshot: snapshotForCommit,
                         isCaughtUp: isCaughtUp,
                         app: app
                     )
                 }
-                bottomArrowsRow(active: activeForBottomBar, app: app, commitSnapshot: snapshotForCommit)
+                bottomArrowsRow(active: stackReady ? activeForBottomBar : nil, app: app, commitSnapshot: snapshotForCommit)
             }
             .padding(.horizontal, 16)
 
@@ -179,14 +189,28 @@ struct StudyView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .task(id: cards.count) {
-            await MainActor.run {
-                syncCurrentCardIfNeeded(app: app)
-            }
+        .task {
+            refreshStudyWindow(app: app, phase: .warmStart)
         }
-        .task(id: app.effectiveBonusReviewBudget) {
-            await MainActor.run {
-                syncCurrentCardIfNeeded(app: app)
+        .task(id: cards.count) {
+            refreshStudyWindow(app: app, phase: .warmStart)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            refreshStudyWindow(app: app, phase: .warmStart)
+        }
+        .task {
+            let interval = StudySessionRefresh.passivePeekInterval
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                guard scenePhase == .active,
+                      flyOffset == .zero,
+                      commitAnimationSnapshot == nil,
+                      app.currentCardId != nil else { continue }
+                await MainActor.run {
+                    _ = StudySessionRefresh.apply(appState: app, cards: cards, now: Date(), phase: .passivePeek)
+                    studyQueueClock = Date()
+                }
             }
         }
         .onChange(of: queue.first?.id) { _, newId in
@@ -238,7 +262,8 @@ struct StudyView: View {
         }
     }
 
-    private func studySessionLayout(app: AppState, now: Date = Date()) -> StudySessionLayout {
+    private func studySessionLayout(app: AppState, now: Date? = nil) -> StudySessionLayout {
+        let now = now ?? studyQueueClock
         if let snap = commitAnimationSnapshot {
             return StudySessionLayout(
                 queue: snap.queue,
@@ -279,13 +304,13 @@ struct StudyView: View {
     private func middleStudyCanvas(
         geo: GeometryProxy,
         queue: [Card],
-        fallbackActive: Card?,
+        stackReady: Bool,
         commitSnapshot: CommitAnimationSnapshot?,
         isCaughtUp: Bool,
         app: AppState
     ) -> some View {
         let w = min(geo.size.width - 32, 340)
-        if let active = queue.first {
+        if let active = queue.first, stackReady {
             CardStack(
                 stack: queue,
                 cardWidth: w,
@@ -300,32 +325,6 @@ struct StudyView: View {
                     if let commitSnapshot {
                         commit(
                             active: active,
-                            grade: grade,
-                            app: app,
-                            snapshot: commitSnapshot,
-                            releaseOffset: offset,
-                            releaseRotation: rotation
-                        )
-                    }
-                }
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .offset(y: -44)
-        } else if let salvage = fallbackActive {
-            CardStack(
-                stack: [salvage],
-                cardWidth: w,
-                hapticsEnabled: app.hapticsEnabled,
-                reduceMotion: reduceMotion,
-                colorSchemeContrast: colorSchemeContrast,
-                reverseModeEnabled: app.effectiveReverseModeEnabled,
-                isFlipped: $isFlipped,
-                flyOffset: $flyOffset,
-                flyRotation: $flyRotation,
-                onCommit: { grade, offset, rotation in
-                    if let commitSnapshot {
-                        commit(
-                            active: salvage,
                             grade: grade,
                             app: app,
                             snapshot: commitSnapshot,
@@ -378,7 +377,7 @@ struct StudyView: View {
                 app.bonusReviewBudget = CardScheduler.bonusSessionReviewCount
                 app.bonusSeenCardIds = []
                 try? modelContext.save()
-                syncCurrentCardIfNeeded(app: app)
+                refreshStudyWindow(app: app, phase: .warmStart)
             } label: {
                 Text("Reforzar vocabulario")
                     .font(.title3.weight(.semibold))
@@ -507,7 +506,7 @@ struct StudyView: View {
         }
         clearUndoStack()
         try? modelContext.save()
-        syncCurrentCardIfNeeded(app: app)
+        refreshStudyWindow(app: app, phase: .warmStart)
     }
 
     private func remainingDiscCount(hasStrict: Bool, app: AppState) -> Int? {
@@ -516,7 +515,7 @@ struct StudyView: View {
             ? CardScheduler.scheduledStrictQueueCount(cards: cards, appState: app)
             : 0
         let total = strictCount + app.effectiveBonusReviewBudget
-        return total > 0 ? total : nil
+        return total
     }
 
     private func headerRow(app: AppState, hasStrict: Bool, remainingCount: Int?) -> some View {
@@ -727,42 +726,12 @@ struct StudyView: View {
         }
     }
 
-    private func syncCurrentCardIfNeeded(app: AppState) {
+    private func refreshStudyWindow(app: AppState, phase: StudySessionRefreshPhase) {
         let now = Date()
-        let hasStrict = CardScheduler.hasScheduledStudyWork(cards: cards, appState: app, now: now)
-        let allowPick = hasStrict || app.effectiveBonusReviewBudget > 0
-        if !allowPick {
-            if app.currentCardId != nil {
-                app.currentCardId = nil
-                try? modelContext.save()
-            }
-            return
-        }
-
-        if app.currentCardId == nil {
-            if let pick = CardScheduler.pickStudyCard(cards: cards, appState: app, now: now) {
-                app.currentCardId = pick.card.id
-                CardScheduler.beginDisplaying(
-                    pick.card,
-                    appState: app,
-                    countTowardDailyNewCap: pick.countNewTowardDailyCap
-                )
-                try? modelContext.save()
-            } else if !hasStrict {
-                app.bonusReviewBudget = 0
-                app.bonusSeenCardIds = []
-                try? modelContext.save()
-            }
-        } else if let id = app.currentCardId,
-                  let c = cards.first(where: { $0.id == id }) {
-            CardScheduler.beginDisplaying(
-                c,
-                appState: app,
-                countTowardDailyNewCap: CardScheduler.shouldApplyNewCardDailyPacingWhenShowing(
-                    card: c,
-                    appState: app
-                )
-            )
+        let changed = StudySessionRefresh.apply(appState: app, cards: cards, now: now, phase: phase)
+        studyQueueClock = now
+        if changed {
+            try? modelContext.save()
         }
     }
 
@@ -869,6 +838,7 @@ struct StudyView: View {
             flashOpacity = 0
         }
         commitAnimationSnapshot = nil
+        studyQueueClock = now
         try? modelContext.save()
     }
 
@@ -936,6 +906,9 @@ struct StudyView: View {
                 parts.append("\(result.invalidRows) omitidas (inválidas)")
             }
             clearUndoStack()
+            if let app = appState {
+                refreshStudyWindow(app: app, phase: .warmStart)
+            }
             showToast(parts.joined(separator: " · "))
         } catch {
             showToast("Error al importar")
@@ -971,6 +944,15 @@ struct StudyView: View {
         guard !app.effectiveDidRunDifficultyRescueV1 else { return }
         let allCards = (try? modelContext.fetch(FetchDescriptor<Card>())) ?? []
         _ = DifficultyRescue.runIfNeeded(cards: allCards, appState: app)
+        try? modelContext.save()
+    }
+
+    @MainActor
+    private func runLeechRebalanceIfNeeded() async {
+        guard let app = appState else { return }
+        guard !app.effectiveDidRunLeechRebalanceV1 else { return }
+        let allCards = (try? modelContext.fetch(FetchDescriptor<Card>())) ?? []
+        _ = LeechRebalance.runIfNeeded(cards: allCards, appState: app)
         try? modelContext.save()
     }
 }

@@ -16,6 +16,14 @@ enum FSRS {
     /// Pulls difficulty toward easy on each correct answer (two-button decks lack an Easy rating).
     private static let goodMeanReversionStrength: Double = 0.06
 
+    /// High-difficulty cards that start getting consecutive Goods get extra relief.
+    private static let selfHealDifficultyThreshold = 8.0
+    private static let selfHealMinGoodStreak = 2
+    private static let selfHealDifficultyFloor = 5.0
+    private static let selfHealDifficultyReduction = 1.5
+    private static let selfHealStabilityFloor = 3.0
+    private static let maximumDifficulty = 9.5
+
     private static var factor: Double {
         pow(0.9, 1.0 / (-decay)) - 1.0
     }
@@ -38,6 +46,8 @@ enum FSRS {
     static func applyReview(to card: Card, grade: Grade, now: Date, retention: Double) {
         let rating = grade == .again ? 1 : 3
         let elapsed = card.lastReviewedAt.map { max(0, DateRollover.daysBetween($0, and: now)) } ?? 0
+        let difficultyBeforeReview = card.difficulty
+        let priorGoodStreak = grade == .good ? DifficultyRescue.trailingGoodStreak(card) : 0
 
         var d = card.difficulty
         var s = card.stability
@@ -79,6 +89,13 @@ enum FSRS {
             }
         }
 
+        if grade == .good,
+           difficultyBeforeReview >= selfHealDifficultyThreshold,
+           priorGoodStreak + 1 >= selfHealMinGoodStreak {
+            d = max(selfHealDifficultyFloor, d - selfHealDifficultyReduction)
+            s = max(s, selfHealStabilityFloor)
+        }
+
         card.reps += 1
         card.lastReviewedAt = now
         let intervalDays = nextIntervalDays(stability: s, retention: retention)
@@ -103,7 +120,7 @@ enum FSRS {
     }
 
     private static func constrainDifficulty(_ difficulty: Double) -> Double {
-        min(max(round2(difficulty), 1), 10)
+        min(max(round2(difficulty), 1), maximumDifficulty)
     }
 
     private static func initDifficulty(rating: Int) -> Double {

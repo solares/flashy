@@ -58,6 +58,7 @@ struct AppStateBackup: Codable {
     var reverseModeEnabled: Bool?
     var bonusSeenCardIdsRaw: String?
     var didRunDifficultyRescueV1: Bool?
+    var didRunLeechRebalanceV1: Bool?
 
     init(from app: AppState) {
         darkModeOverrideRaw = app.darkModeOverrideRaw
@@ -74,6 +75,7 @@ struct AppStateBackup: Codable {
         reverseModeEnabled = app.reverseModeEnabled
         bonusSeenCardIdsRaw = app.bonusSeenCardIdsRaw
         didRunDifficultyRescueV1 = app.didRunDifficultyRescueV1
+        didRunLeechRebalanceV1 = app.didRunLeechRebalanceV1
     }
 }
 
@@ -176,5 +178,6 @@ enum BackupImporter {
         app.reverseModeEnabled = s.reverseModeEnabled
         app.bonusSeenCardIdsRaw = s.bonusSeenCardIdsRaw
         app.didRunDifficultyRescueV1 = s.didRunDifficultyRescueV1
+        app.didRunLeechRebalanceV1 = s.didRunLeechRebalanceV1
     }
 }
