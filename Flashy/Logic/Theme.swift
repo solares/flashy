@@ -11,6 +11,13 @@ enum FlashyTheme {
         colorScheme == .dark ? prussianBlueOnDark : prussianBlue
     }
 
+    /// Brighter blue for corpus-editing buttons (+ and edit pencil), distinct from the standard chrome accent and red trash.
+    static let editAccent = Color(red: 0.16, green: 0.45, blue: 0.74)
+    static let editAccentOnDark = Color(red: 0.42, green: 0.64, blue: 0.86)
+    static func editAccent(colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? editAccentOnDark : editAccent
+    }
+
     static let flashTeal = Color(red: 15 / 255, green: 110 / 255, blue: 86 / 255).opacity(0.5)
     static let flashRed = Color(red: 163 / 255, green: 45 / 255, blue: 45 / 255).opacity(0.5)
 

@@ -31,6 +31,7 @@
 		A10000000000000000000016 /* DictionaryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* DictionaryService.swift */; };
 		A10000000000000000000017 /* WordFlowText.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* WordFlowText.swift */; };
 		A10000000000000000000018 /* DictionaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* DictionaryView.swift */; };
+		A1000000000000000000001B /* CardEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000029 /* CardEditorView.swift */; };
 		A10000000000000000000019 /* DifficultyRescue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* DifficultyRescue.swift */; };
 		A1000000000000000000001A /* StudySessionRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000028 /* StudySessionRefresh.swift */; };
 /* End PBXBuildFile section */
@@ -70,6 +71,7 @@
 		A20000000000000000000024 /* DictionaryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryService.swift; sourceTree = "<group>"; };
 		A20000000000000000000025 /* WordFlowText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordFlowText.swift; sourceTree = "<group>"; };
 		A20000000000000000000026 /* DictionaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryView.swift; sourceTree = "<group>"; };
+		A20000000000000000000029 /* CardEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardEditorView.swift; sourceTree = "<group>"; };
 		A20000000000000000000027 /* DifficultyRescue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DifficultyRescue.swift; sourceTree = "<group>"; };
 		A20000000000000000000028 /* StudySessionRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudySessionRefresh.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -174,6 +176,7 @@
 				A20000000000000000000022 /* UpcomingView.swift */,
 				A20000000000000000000025 /* WordFlowText.swift */,
 				A20000000000000000000026 /* DictionaryView.swift */,
+				A20000000000000000000029 /* CardEditorView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -291,6 +294,7 @@
 				A10000000000000000000016 /* DictionaryService.swift in Sources */,
 				A10000000000000000000017 /* WordFlowText.swift in Sources */,
 				A10000000000000000000018 /* DictionaryView.swift in Sources */,
+				A1000000000000000000001B /* CardEditorView.swift in Sources */,
 				A10000000000000000000019 /* DifficultyRescue.swift in Sources */,
 				A1000000000000000000001A /* StudySessionRefresh.swift in Sources */,
 			);

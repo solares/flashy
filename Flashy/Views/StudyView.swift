@@ -84,6 +84,8 @@ struct StudyView: View {
     @State private var showDeleteConfirm = false
     @State private var cardToDelete: Card?
 
+    @State private var cardEditorPresentation: CardEditorPresentation?
+
     /// Scale factor for the counter capsule bump animation when the count increases.
     @State private var countBumpScale: CGFloat = 1.0
 
@@ -157,9 +159,7 @@ struct StudyView: View {
 
             VStack(spacing: 0) {
                 headerRow(app: app, hasStrict: hasStrict, remainingCount: remainingCount)
-                if stackReady, let activeCard = queue.first {
-                    reverseModeRow(app: app, card: activeCard)
-                }
+                reverseModeRow(app: app, card: stackReady ? queue.first : nil)
                 Spacer(minLength: 8)
                 GeometryReader { geo in
                     middleStudyCanvas(
@@ -240,6 +240,23 @@ struct StudyView: View {
         }
         .fullScreenCover(item: $lookupWord) { item in
             DictionaryView(suggestedWords: item.suggestedWords)
+        }
+        .fullScreenCover(item: $cardEditorPresentation) { presentation in
+            CardEditorView(presentation: presentation)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .flashyEditorDismiss)) { note in
+            let wasAdding = cardEditorPresentation.map { if case .add = $0 { return true }; return false } ?? false
+            let added = note.userInfo?["added"] as? Int ?? 0
+            cardEditorPresentation = nil
+            if wasAdding {
+                clearUndoStack()
+                if let app = appState {
+                    refreshStudyWindow(app: app, phase: .warmStart)
+                }
+                if added > 0 {
+                    showToast(added == 1 ? "1 tarjeta añadida" : "\(added) tarjetas añadidas")
+                }
+            }
         }
         .task {
             await MainActor.run {
@@ -391,50 +408,80 @@ struct StudyView: View {
         .padding(.bottom, 8)
     }
 
-    private func reverseModeRow(app: AppState, card: Card) -> some View {
+    private func reverseModeRow(app: AppState, card: Card?) -> some View {
         let accent = FlashyTheme.accent(colorScheme: colorScheme)
-        return HStack(alignment: .center, spacing: 0) {
-            Button {
-                openDictionary(for: card)
-            } label: {
-                Image(systemName: "book")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.bordered)
-            .tint(accent)
-            .clipShape(Circle())
-            .accessibilityLabel("Diccionario")
-            .accessibilityHint("Abre el diccionario.")
+        return HStack(alignment: .center, spacing: 4) {
+            if let card {
+                Button {
+                    openDictionary(for: card)
+                } label: {
+                    Image(systemName: "book")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.bordered)
+                .tint(accent)
+                .clipShape(Circle())
+                .accessibilityLabel("Diccionario")
+                .accessibilityHint("Abre el diccionario.")
 
-            Button {
-                copyAndTranslate(card: card)
-            } label: {
-                Image(systemName: "globe")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 32, height: 32)
+                Button {
+                    copyAndTranslate(card: card)
+                } label: {
+                    Image(systemName: "globe")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.bordered)
+                .tint(accent)
+                .clipShape(Circle())
+                .accessibilityLabel("Copiar y traducir")
+                .accessibilityHint("Copia el texto en español y abre Traductor de Google.")
             }
-            .buttonStyle(.bordered)
-            .tint(accent)
-            .clipShape(Circle())
-            .accessibilityLabel("Copiar y traducir")
-            .accessibilityHint("Copia el texto en español y abre Traductor de Google.")
 
             Spacer(minLength: 8)
 
+            if let card {
+                Button {
+                    cardToDelete = card
+                    showDeleteConfirm = true
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .clipShape(Circle())
+                .accessibilityLabel("Eliminar tarjeta")
+                .accessibilityHint("Elimina esta tarjeta de la colección.")
+
+                Button {
+                    cardEditorPresentation = .edit(card)
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 15, weight: .bold))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.bordered)
+                .tint(accent)
+                .clipShape(Circle())
+                .accessibilityLabel("Editar tarjeta")
+                .accessibilityHint("Edita el español e inglés de esta tarjeta.")
+            }
+
             Button {
-                cardToDelete = card
-                showDeleteConfirm = true
+                cardEditorPresentation = .add
             } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 15, weight: .semibold))
+                Image(systemName: "plus")
+                    .font(.system(size: 17, weight: .bold))
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(.bordered)
-            .tint(.red)
+            .tint(accent)
             .clipShape(Circle())
-            .accessibilityLabel("Eliminar tarjeta")
-            .accessibilityHint("Elimina esta tarjeta de la colección.")
+            .accessibilityLabel("Añadir tarjeta")
+            .accessibilityHint("Crea una nueva tarjeta en la colección.")
         }
         .padding(.horizontal, -16)
         .padding(.top, 34)
@@ -719,11 +766,7 @@ struct StudyView: View {
         .accessibilityValue(isOn ? "Activado" : "Desactivado")
         .accessibilityHint("Activa o desactiva mostrar primero el reverso de la tarjeta.")
 
-        if isOn {
-            label.buttonStyle(.borderedProminent)
-        } else {
-            label.buttonStyle(.bordered)
-        }
+        label.buttonStyle(.bordered)
     }
 
     private func refreshStudyWindow(app: AppState, phase: StudySessionRefreshPhase) {
