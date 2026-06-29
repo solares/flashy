@@ -59,6 +59,7 @@ struct AppStateBackup: Codable {
     var bonusSeenCardIdsRaw: String?
     var didRunDifficultyRescueV1: Bool?
     var didRunLeechRebalanceV1: Bool?
+    var didRunStabilityFloorRepairV1: Bool?
 
     init(from app: AppState) {
         darkModeOverrideRaw = app.darkModeOverrideRaw
@@ -76,6 +77,7 @@ struct AppStateBackup: Codable {
         bonusSeenCardIdsRaw = app.bonusSeenCardIdsRaw
         didRunDifficultyRescueV1 = app.didRunDifficultyRescueV1
         didRunLeechRebalanceV1 = app.didRunLeechRebalanceV1
+        didRunStabilityFloorRepairV1 = app.didRunStabilityFloorRepairV1
     }
 }
 
@@ -92,6 +94,9 @@ enum BackupExporter {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
+        encoder.nonConformingFloatEncodingStrategy = .convertToString(
+            positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan"
+        )
 
         let data = try encoder.encode(backup)
 
@@ -123,6 +128,9 @@ enum BackupImporter {
     static func importBackup(data: Data, modelContext: ModelContext, appState: AppState) throws {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(
+            positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan"
+        )
         let backup = try decoder.decode(FlashyBackup.self, from: data)
         guard backup.version == 1 else {
             throw ImportError.unsupportedVersion(backup.version)
@@ -179,5 +187,6 @@ enum BackupImporter {
         app.bonusSeenCardIdsRaw = s.bonusSeenCardIdsRaw
         app.didRunDifficultyRescueV1 = s.didRunDifficultyRescueV1
         app.didRunLeechRebalanceV1 = s.didRunLeechRebalanceV1
+        app.didRunStabilityFloorRepairV1 = s.didRunStabilityFloorRepairV1
     }
 }

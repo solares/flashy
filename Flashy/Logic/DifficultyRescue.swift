@@ -46,6 +46,24 @@ enum DifficultyRescue {
     }
 }
 
+/// One-off migration: lifts any card whose persisted stability is non-finite or below the FSRS floor.
+/// Targets the 24 cards written with `stability: 0` before the NaN-guard fix was introduced.
+enum StabilityFloorRepair {
+    /// Runs once per install (guarded by `AppState.didRunStabilityFloorRepairV1`).
+    /// Returns the number of cards patched.
+    @discardableResult
+    static func runIfNeeded(cards: [Card], appState: AppState) -> Int {
+        guard !appState.effectiveDidRunStabilityFloorRepairV1 else { return 0 }
+        var patched = 0
+        for card in cards where !card.stability.isFinite || card.stability < FSRS.minimumStability {
+            card.stability = FSRS.minimumStability
+            patched += 1
+        }
+        appState.didRunStabilityFloorRepairV1 = true
+        return patched
+    }
+}
+
 /// One-off migration: hard-resets cards stuck in the leech trap (high D, near-zero stability).
 enum LeechRebalance {
     static let stabilityThreshold = 1.0

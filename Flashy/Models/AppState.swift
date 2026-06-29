@@ -36,6 +36,9 @@ final class AppState {
     /// One-shot guard for `LeechRebalance.runIfNeeded`. `nil` for legacy rows (= false).
     var didRunLeechRebalanceV1: Bool?
 
+    /// One-shot guard for `StabilityFloorRepair.runIfNeeded`. `nil` for legacy rows (= false).
+    var didRunStabilityFloorRepairV1: Bool?
+
     init(
         darkModeOverrideRaw: String? = nil,
         newCardsPerDay: Int = 15,
@@ -51,7 +54,8 @@ final class AppState {
         reverseModeEnabled: Bool? = nil,
         bonusSeenCardIdsRaw: String? = nil,
         didRunDifficultyRescueV1: Bool? = nil,
-        didRunLeechRebalanceV1: Bool? = nil
+        didRunLeechRebalanceV1: Bool? = nil,
+        didRunStabilityFloorRepairV1: Bool? = nil
     ) {
         self.darkModeOverrideRaw = darkModeOverrideRaw
         self.newCardsPerDay = newCardsPerDay
@@ -68,6 +72,7 @@ final class AppState {
         self.bonusSeenCardIdsRaw = bonusSeenCardIdsRaw
         self.didRunDifficultyRescueV1 = didRunDifficultyRescueV1
         self.didRunLeechRebalanceV1 = didRunLeechRebalanceV1
+        self.didRunStabilityFloorRepairV1 = didRunStabilityFloorRepairV1
     }
 
     /// Use for scheduling UI; persisted optional is `nil` only on unmigrated legacy rows (treated as 0).
@@ -86,6 +91,10 @@ final class AppState {
 
     var effectiveDidRunLeechRebalanceV1: Bool {
         didRunLeechRebalanceV1 ?? false
+    }
+
+    var effectiveDidRunStabilityFloorRepairV1: Bool {
+        didRunStabilityFloorRepairV1 ?? false
     }
 
     var bonusSeenCardIds: [String] {

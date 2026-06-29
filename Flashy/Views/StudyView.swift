@@ -117,6 +117,7 @@ struct StudyView: View {
             await bootstrapAppState()
             await runDifficultyRescueIfNeeded()
             await runLeechRebalanceIfNeeded()
+            await runStabilityFloorRepairIfNeeded()
         }
     }
 
@@ -996,6 +997,15 @@ struct StudyView: View {
         guard !app.effectiveDidRunLeechRebalanceV1 else { return }
         let allCards = (try? modelContext.fetch(FetchDescriptor<Card>())) ?? []
         _ = LeechRebalance.runIfNeeded(cards: allCards, appState: app)
+        try? modelContext.save()
+    }
+
+    @MainActor
+    private func runStabilityFloorRepairIfNeeded() async {
+        guard let app = appState else { return }
+        guard !app.effectiveDidRunStabilityFloorRepairV1 else { return }
+        let allCards = (try? modelContext.fetch(FetchDescriptor<Card>())) ?? []
+        _ = StabilityFloorRepair.runIfNeeded(cards: allCards, appState: app)
         try? modelContext.save()
     }
 }
